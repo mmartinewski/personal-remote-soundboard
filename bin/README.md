@@ -1,33 +1,33 @@
 # bin/
 
-Esta pasta hospeda os executáveis Windows que a aplicação invoca em runtime:
+This folder hosts the Windows executables the application invokes at runtime:
 
 - `ffmpeg.exe`
 - `ffprobe.exe`
 - `ffplay.exe`
 - `yt-dlp.exe`
 
-Os ficheiros **não são versionados** (ver `.gitignore`). Para os obter, na raiz do repositório:
+These files are **not versioned** (see `.gitignore`). To get them, run this from the repository root:
 
 ```bash
 npm run fetch:bin
 ```
 
-O script usa por defeito **builds BtbN no GitHub** (ZIP win64 GPL com `ffplay`) e **`curl`** no Windows quando existe — costuma funcionar melhor que o mirror antigo `gyan.dev`.
+By default, the script uses **BtbN builds on GitHub** (win64 GPL ZIP with `ffplay`) and **`curl`** on Windows when available. This usually works better than the older `gyan.dev` mirror.
 
-### Se o download automático falhar
+### If the automatic download fails
 
-1. Abra [**BtbN / FFmpeg-Builds — Latest**](https://github.com/BtbN/FFmpeg-Builds/releases/latest) e descarregue o ZIP **win64 GPL** (nome típico: `ffmpeg-master-latest-win64-gpl.zip`).
-2. Extraia e copie para **esta pasta** apenas: `ffmpeg.exe`, `ffprobe.exe`, `ffplay.exe`.
+1. Open [**BtbN / FFmpeg-Builds - Latest**](https://github.com/BtbN/FFmpeg-Builds/releases/latest) and download the **win64 GPL** ZIP. A typical file name is `ffmpeg-master-latest-win64-gpl.zip`.
+2. Extract it and copy only these files into **this folder**: `ffmpeg.exe`, `ffprobe.exe`, `ffplay.exe`.
 3. **yt-dlp:**  
    https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe  
-   → copie `yt-dlp.exe` para **esta pasta**.
+   Copy `yt-dlp.exe` into **this folder**.
 
-Ou force uma URL no PowerShell antes de correr o script:
+Alternatively, force a URL in PowerShell before running the script:
 
 ```powershell
 $env:FFMPEG_ZIP_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 npm run fetch:bin
 ```
 
-> O backend resolve estes caminhos via `backend/src/config/paths.ts`. Não dependa do `PATH` global.
+> The backend resolves these paths through `backend/src/config/paths.ts`. Do not rely on the global `PATH`.

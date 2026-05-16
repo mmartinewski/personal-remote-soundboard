@@ -1,24 +1,24 @@
 # Personal Clip Player
 
-Soundboard local para criar e tocar clipes de áudio extraídos do YouTube. O servidor roda na máquina da live e dispara o áudio via `ffplay`; a interface web pode ser usada no próprio PC ou por um celular/tablet na mesma rede.
+Local soundboard for creating and playing audio clips extracted from YouTube. The server runs on the streaming machine and plays audio through `ffplay`; the web UI can be used on the same PC or from a phone/tablet on the same network.
 
-## Principais recursos
+## Main Features
 
-- Prefetch de áudio do YouTube com `yt-dlp`.
-- Corte de clipes com waveform e alças de início/fim.
-- Normalização automática do áudio no preview e no MP3 salvo.
-- Volume por clipe, com reforço até 300% na reprodução.
-- Thumbnail sugerida do YouTube com crop 1:1 e zoom.
-- Dashboard estilo controle ao vivo: busca fixa, cards grandes, play remoto, favoritos, edição e exclusão.
-- Persistência local em SQLite (`better-sqlite3`).
+- YouTube audio prefetch with `yt-dlp`.
+- Clip trimming with waveform handles for start/end selection.
+- Automatic audio normalization in previews and saved MP3 files.
+- Per-clip volume with playback boost up to 300%.
+- Suggested YouTube thumbnail with 1:1 crop and zoom.
+- Live-control dashboard: sticky search, large cards, remote play, favorites, edit, and delete.
+- Local persistence in SQLite (`better-sqlite3`).
 
-## Requisitos
+## Requirements
 
 - Windows.
-- Node.js `>=20` (Node LTS recomendado).
-- Binários locais em `bin/`: `ffmpeg.exe`, `ffprobe.exe`, `ffplay.exe` e `yt-dlp.exe`.
+- Node.js `>=20` (Node LTS recommended).
+- Local binaries in `bin/`: `ffmpeg.exe`, `ffprobe.exe`, `ffplay.exe`, and `yt-dlp.exe`.
 
-Os dados do usuário ficam fora do repositório, em `%APPDATA%/LocalSoundboardServer/`.
+User data is stored outside the repository in `%APPDATA%/LocalSoundboardServer/`.
 
 ## Setup
 
@@ -27,9 +27,9 @@ npm install
 npm run fetch:bin
 ```
 
-`npm run fetch:bin` baixa os executáveis necessários para `bin/`. Eles são ignorados pelo Git; veja [`bin/README.md`](bin/README.md) para instalação manual se o download automático falhar.
+`npm run fetch:bin` downloads the required executables into `bin/`. They are ignored by Git; see [`bin/README.md`](bin/README.md) for manual installation if the automatic download fails.
 
-## Desenvolvimento
+## Development
 
 ```bash
 npm run dev
@@ -37,20 +37,20 @@ npm run dev
 
 - Frontend Vite: `http://localhost:5173`
 - Backend Express: `http://localhost:3847`
-- Para acessar pelo celular, abra a URL de rede exibida pelo Vite e mantenha o backend rodando no PC da live.
+- To use a phone, open the network URL shown by Vite and keep the backend running on the streaming PC.
 
-## Produção local
+## Local Production
 
 ```bash
 npm run build
 npm start
 ```
 
-Após o build, o Express serve o frontend estático de `frontend/dist/`.
+After the build, Express serves the static frontend from `frontend/dist/`.
 
-## Configuração
+## Configuration
 
-Opcionalmente copie `config/config.example.json` para `config/config.json` para ajustar a porta:
+Optionally copy `config/config.example.json` to `config/config.json` to adjust the port:
 
 ```json
 {
@@ -58,20 +58,20 @@ Opcionalmente copie `config/config.example.json` para `config/config.json` para 
 }
 ```
 
-`config/config.json` é ignorado pelo Git.
+`config/config.json` is ignored by Git.
 
-## Estrutura
+## Structure
 
 ```text
 backend/    API Express, SQLite, FFmpeg/ffplay, yt-dlp
 frontend/   React + Vite + Tailwind
-bin/        executáveis locais não versionados
-config/     exemplo de configuração
-docs/       especificação técnica original
-scripts/    utilitários do projeto
+bin/        unversioned local executables
+config/     configuration example
+docs/       technical specification
+scripts/    project utilities
 ```
 
-## Observações para GitHub
+## GitHub Notes
 
-- Não versionar `node_modules/`, `dist/`, `bin/*.exe`, `config/config.json` ou arquivos `.env`.
-- O banco SQLite, mídias e logs são criados em `%APPDATA%/LocalSoundboardServer/`, fora do repositório.
+- Do not commit `node_modules/`, `dist/`, `bin/*.exe`, `config/config.json`, or `.env` files.
+- The SQLite database, media, and logs are created in `%APPDATA%/LocalSoundboardServer/`, outside the repository.

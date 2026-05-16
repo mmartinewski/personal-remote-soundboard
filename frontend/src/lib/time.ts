@@ -1,5 +1,5 @@
-// Espelho da implementação do backend (backend/src/services/timeFormat.ts).
-// Formato único: HH:MM:SS.mmm. Ver §6.2 da especificação.
+// Mirror of the backend implementation (backend/src/services/timeFormat.ts).
+// Single format: HH:MM:SS.mmm. See section 6.2 of the specification.
 
 const TIME_REGEX = /^(\d{2}):(\d{2}):(\d{2})\.(\d{3})$/;
 
@@ -14,7 +14,7 @@ export function isValidTimeString(value: string): boolean {
 
 export function timeStringToSeconds(value: string): number {
   const m = TIME_REGEX.exec(value);
-  if (!m) throw new Error(`Tempo inválido (esperado HH:MM:SS.mmm): "${value}"`);
+  if (!m) throw new Error(`Invalid time (expected HH:MM:SS.mmm): "${value}"`);
   const hh = Number(m[1]);
   const mm = Number(m[2]);
   const ss = Number(m[3]);

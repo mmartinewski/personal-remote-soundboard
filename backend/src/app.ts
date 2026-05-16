@@ -27,10 +27,10 @@ export function createApp(paths: AppPaths): Express {
 
   if (existsSync(paths.frontendDist)) {
     app.use(express.static(paths.frontendDist));
-    logger.info(`a servir frontend estático de ${paths.frontendDist}`);
+    logger.info(`serving static frontend from ${paths.frontendDist}`);
   } else {
     logger.info(
-      'frontend/dist ausente; em desenvolvimento o Vite serve a UI em http://localhost:5173',
+      'frontend/dist missing; in development Vite serves the UI at http://localhost:5173',
     );
   }
 

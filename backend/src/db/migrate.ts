@@ -1,7 +1,7 @@
 import type { Database as BetterDatabase } from 'better-sqlite3';
 
-// IMPORTANTE: manter sincronizado com `schema.sql` (mesma pasta).
-// O `.sql` é a referência humana; este DDL é o que efectivamente corre.
+// IMPORTANT: keep this in sync with `schema.sql` in the same folder.
+// The `.sql` file is the human reference; this DDL is what actually runs.
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

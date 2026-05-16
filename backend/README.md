@@ -1,20 +1,20 @@
 # backend
 
-Servidor Express + TypeScript que persiste em SQLite (`better-sqlite3`), invoca `yt-dlp` e FFmpeg, e dispara reprodução de áudio local via `ffplay.exe`.
+Express + TypeScript server that persists data in SQLite (`better-sqlite3`), invokes `yt-dlp` and FFmpeg, and triggers local audio playback through `ffplay.exe`.
 
 ## Scripts
 
 ```bash
-npm run dev        # tsx watch (recarrega ao editar)
+npm run dev        # tsx watch (reloads on edit)
 npm run build      # tsc -> dist/
 npm start          # node dist/index.js
-npm run typecheck  # apenas verificação de tipos
+npm run typecheck  # type checking only
 ```
 
-## Caminhos
+## Paths
 
-- `bin/` da raiz é resolvido em `src/config/paths.ts`.
-- Dados do utilizador em `%APPDATA%/LocalSoundboardServer/`.
-- Logs em `%APPDATA%/LocalSoundboardServer/logs/latest.log` (truncado a cada arranque).
+- The root `bin/` directory is resolved in `src/config/paths.ts`.
+- User data lives in `%APPDATA%/LocalSoundboardServer/`.
+- Logs live in `%APPDATA%/LocalSoundboardServer/logs/latest.log` and are truncated on each startup.
 
-Detalhes na §11 e §12 da especificação.
+See sections 11 and 12 of the specification for details.

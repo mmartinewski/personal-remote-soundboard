@@ -14,7 +14,7 @@ export function resolvePort(configFilePath: string): number {
       if (fromFile !== undefined) return fromFile;
     } catch (err) {
       console.warn(
-        `[config] Falha a ler ${configFilePath}, a usar fallback. Detalhe:`,
+        `[config] Failed to read ${configFilePath}, using fallback. Detail:`,
         err,
       );
     }

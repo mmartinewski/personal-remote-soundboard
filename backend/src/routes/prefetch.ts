@@ -24,13 +24,13 @@ export function prefetchRouter(paths: AppPaths): Router {
       const url =
         typeof body.youtube_url === 'string' ? body.youtube_url.trim() : '';
       if (!isValidYoutubeUrl(url)) {
-        throw new HttpError(400, 'URL do YouTube inválida.', 'invalid_youtube_url');
+        throw new HttpError(400, 'Invalid YouTube URL.', 'invalid_youtube_url');
       }
 
       const processId = newStagingProcessId();
       const outputBase = join(paths.mediaTemp, processId);
 
-      logger.info('prefetch: a descarregar áudio', { processId, url });
+      logger.info('prefetch: downloading audio', { processId, url });
       const audioPath = await downloadBestAudio({
         ytDlpExe: paths.ytDlpExe,
         ffmpegExe: paths.ffmpegExe,
@@ -48,7 +48,7 @@ export function prefetchRouter(paths: AppPaths): Router {
         }
         throw new HttpError(
           400,
-          'O vídeo de origem não pode ter mais de 10 minutos.',
+          'The source video cannot be longer than 10 minutes.',
           'source_too_long',
         );
       }
@@ -75,11 +75,11 @@ export function prefetchRouter(paths: AppPaths): Router {
         next(err);
         return;
       }
-      logger.error('prefetch falhou', err);
+      logger.error('prefetch failed', err);
       next(
         new HttpError(
           502,
-          'Não foi possível descarregar o áudio (YouTube / yt-dlp).',
+          'Could not download the audio (YouTube / yt-dlp).',
           'prefetch_failed',
         ),
       );

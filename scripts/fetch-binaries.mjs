@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-// Baixa ffmpeg + ffprobe + ffplay e yt-dlp.exe para /bin (Windows).
+// Downloads ffmpeg + ffprobe + ffplay and yt-dlp.exe into /bin (Windows).
 //
-// Por defeito usa builds **BtbN no GitHub** (mirror estável); antigo gyan.dev costuma
-// falhar ou ficar pendurado em algumas redes.
+// By default, this uses **BtbN builds on GitHub** (stable mirror). The old
+// gyan.dev mirror tends to fail or hang on some networks.
 //
-// Prioridade de download:
-//   1) curl (curl.exe no Windows) — timeouts, retries, segue redirects (GitHub)
-//   2) fetch() do Node — fallback
+// Download priority:
+//   1) curl (curl.exe on Windows) - timeouts, retries, follows redirects (GitHub)
+//   2) Node fetch() - fallback
 //
-// Variáveis opcionais:
-//   FFMPEG_ZIP_URL   — substituir URL do zip do FFmpeg (build Windows 64-bit com ffplay)
+// Optional variables:
+//   FFMPEG_ZIP_URL   - override the FFmpeg ZIP URL (64-bit Windows build with ffplay)
 //
-// Uso:
+// Usage:
 //   npm run fetch:bin
 
 import {
@@ -33,7 +33,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const BIN = join(ROOT, 'bin');
 
-/** Builds GitHub — mais fiável que gyan.dev para muitos utilizadores. */
+/** GitHub builds are more reliable than gyan.dev for many users. */
 const FFMPEG_ZIP_URLS = [
   process.env.FFMPEG_ZIP_URL?.trim() ||
     'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip',
@@ -50,7 +50,7 @@ function curlBinary() {
   return process.platform === 'win32' ? 'curl.exe' : 'curl';
 }
 
-/** @returns {boolean} true se o ficheiro foi gravado com sucesso via curl */
+/** @returns {boolean} true when the file was written successfully through curl */
 function tryDownloadWithCurl(url, destPath) {
   const curl = curlBinary();
   console.log(`[fetch-binaries] curl ${url}`);
@@ -74,11 +74,11 @@ function tryDownloadWithCurl(url, destPath) {
   );
 
   if (result.error) {
-    console.warn('[fetch-binaries] curl não disponível:', result.error.message);
+    console.warn('[fetch-binaries] curl unavailable:', result.error.message);
     return false;
   }
   if (result.status !== 0) {
-    console.warn(`[fetch-binaries] curl terminou com código ${result.status}`);
+    console.warn(`[fetch-binaries] curl exited with code ${result.status}`);
     return false;
   }
   return true;
@@ -106,7 +106,7 @@ async function download(url, destPath) {
   if (!ok) await downloadWithFetch(url, destPath);
 
   const size = statSync(destPath).size;
-  console.log(`[fetch-binaries] gravado ${destPath} (${size} bytes)`);
+  console.log(`[fetch-binaries] wrote ${destPath} (${size} bytes)`);
   return size;
 }
 
@@ -114,13 +114,13 @@ function validateZip(path) {
   const size = statSync(path).size;
   if (size < MIN_ZIP_BYTES) {
     throw new Error(
-      `Ficheiro demasiado pequeno (${size} bytes) — download incompleto ou URL errada.`,
+      `File is too small (${size} bytes) - incomplete download or wrong URL.`,
     );
   }
 }
 
 function extractZipWithPowerShell(zipPath, destDir) {
-  console.log(`[fetch-binaries] a extrair ${zipPath} -> ${destDir}`);
+  console.log(`[fetch-binaries] extracting ${zipPath} -> ${destDir}`);
   rmSync(destDir, { recursive: true, force: true });
   mkdirSync(destDir, { recursive: true });
   execFileSync(
@@ -135,7 +135,7 @@ function extractZipWithPowerShell(zipPath, destDir) {
 }
 
 /**
- * Localiza o diretório que contém ffmpeg.exe (estruturas variam entre pacotes ZIP).
+ * Locates the directory that contains ffmpeg.exe. ZIP structures vary by package.
  */
 function findExeDirectory(rootDir, exeName) {
   /** @type {string | null} */
@@ -170,14 +170,14 @@ async function fetchFFmpeg() {
 
       const binDir = findExeDirectory(tmpDir, 'ffmpeg.exe');
       if (!binDir) {
-        throw new Error('ffmpeg.exe não encontrado dentro do ZIP extraído.');
+        throw new Error('ffmpeg.exe was not found inside the extracted ZIP.');
       }
 
       for (const exe of ['ffmpeg.exe', 'ffprobe.exe', 'ffplay.exe']) {
         const src = join(binDir, exe);
         const dst = join(BIN, exe);
         if (!existsSync(src)) {
-          throw new Error(`Não encontrei ${exe} em ${binDir}`);
+          throw new Error(`Could not find ${exe} in ${binDir}`);
         }
         rmSync(dst, { force: true });
         renameSync(src, dst);
@@ -189,21 +189,21 @@ async function fetchFFmpeg() {
       return;
     } catch (err) {
       lastErr = /** @type {Error} */ (err);
-      console.warn(`[fetch-binaries] falhou este mirror: ${lastErr.message}`);
+      console.warn(`[fetch-binaries] this mirror failed: ${lastErr.message}`);
       safeRemoveDir(tmpDir);
       safeRemove(tmpZip);
     }
   }
 
-  throw lastErr ?? new Error('Nenhuma URL de FFmpeg funcionou.');
+  throw lastErr ?? new Error('No FFmpeg URL worked.');
 }
 
-/** Evita EBUSY em Windows quando outro processo (AV, IDE) mantém o ficheiro aberto. */
+/** Avoids EBUSY on Windows when another process (AV, IDE) keeps the file open. */
 function safeRemove(filePath) {
   try {
     rmSync(filePath, { force: true });
   } catch {
-    console.warn(`[fetch-binaries] não foi possível apagar ${filePath} (pode apagar manualmente).`);
+    console.warn(`[fetch-binaries] could not delete ${filePath} (you can delete it manually).`);
   }
 }
 
@@ -211,7 +211,7 @@ function safeRemoveDir(dirPath) {
   try {
     rmSync(dirPath, { recursive: true, force: true });
   } catch {
-    console.warn(`[fetch-binaries] não foi possível apagar pasta ${dirPath}`);
+    console.warn(`[fetch-binaries] could not delete folder ${dirPath}`);
   }
 }
 
@@ -222,7 +222,7 @@ async function fetchYtDlp() {
   const size = statSync(partial).size;
   if (size < 1024) {
     safeRemove(partial);
-    throw new Error('yt-dlp.exe parece incompleto.');
+    throw new Error('yt-dlp.exe looks incomplete.');
   }
   safeRemove(dst);
   renameSync(partial, dst);
@@ -232,29 +232,29 @@ async function fetchYtDlp() {
 async function main() {
   if (process.platform !== 'win32') {
     console.warn(
-      '[fetch-binaries] AVISO: este projeto destina-se a Windows. A baixar os .exe na mesma.',
+      '[fetch-binaries] WARNING: this project targets Windows. Downloading the .exe files anyway.',
     );
   }
   await fetchFFmpeg();
   await fetchYtDlp();
-  console.log('[fetch-binaries] tudo pronto.');
+  console.log('[fetch-binaries] all set.');
 }
 
 main().catch((err) => {
-  console.error('[fetch-binaries] FALHOU:', err);
+  console.error('[fetch-binaries] FAILED:', err);
   console.error(`
-Se continuar a falhar na rede corporativa ou firewall:
+If it keeps failing on a corporate network or firewall:
 
-  1. Abra https://github.com/BtbN/FFmpeg-Builds/releases/latest
-     e descarregue o ZIP **win64 gpl** (ex.: ffmpeg-master-latest-win64-gpl.zip).
+  1. Open https://github.com/BtbN/FFmpeg-Builds/releases/latest
+     and download the **win64 gpl** ZIP (ex.: ffmpeg-master-latest-win64-gpl.zip).
 
-  2. Extraia e copie para esta pasta do projeto **apenas**:
+  2. Extract it and copy **only** these files into this project folder:
        ffmpeg.exe  ffprobe.exe  ffplay.exe
 
   3. yt-dlp: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
-     → copie yt-dlp.exe para a pasta bin/
+     Copy yt-dlp.exe into the bin/ folder.
 
-Ou defina uma URL manualmente:
+Or set a URL manually:
 
   set FFMPEG_ZIP_URL=https://...
   npm run fetch:bin

@@ -56,40 +56,40 @@ export function playRouter(paths: AppPaths): Router {
         body.audio_normalize === '1' ||
         body.audio_normalize === 'true';
       if (!isValidProcessId(processId)) {
-        throw new HttpError(400, 'process_id inválido.', 'invalid_process_id');
+        throw new HttpError(400, 'Invalid process_id.', 'invalid_process_id');
       }
       if (!isValidTimeString(startStr) || !isValidTimeString(endStr)) {
         throw new HttpError(
           400,
-          'Tempos inválidos (use HH:MM:SS.mmm).',
+          'Invalid times (use HH:MM:SS.mmm).',
           'invalid_time',
         );
       }
 
       const meta = readStagingMeta(paths.mediaTemp, processId);
       if (!meta || stagingMetaExpired(meta, SEVEN_DAYS_MS)) {
-        throw new HttpError(404, 'Staging não encontrado.', 'staging_not_found');
+        throw new HttpError(404, 'Staging not found.', 'staging_not_found');
       }
       if (!existsSync(meta.audioPath)) {
-        throw new HttpError(404, 'Ficheiro de staging em falta.', 'staging_file_missing');
+        throw new HttpError(404, 'Staging file is missing.', 'staging_file_missing');
       }
 
       const startSec = timeStringToSeconds(startStr);
       const endSec = timeStringToSeconds(endStr);
       if (endSec <= startSec) {
-        throw new HttpError(400, 'end_time deve ser maior que start_time.', 'invalid_range');
+        throw new HttpError(400, 'end_time must be greater than start_time.', 'invalid_range');
       }
       if (endSec - startSec > MAX_CLIP_SECONDS + 0.001) {
         throw new HttpError(
           400,
-          'O trecho não pode exceder 30 segundos.',
+          'The segment cannot exceed 30 seconds.',
           'clip_too_long',
         );
       }
       if (startSec < -0.001 || endSec > meta.durationSeconds + 0.05) {
         throw new HttpError(
           400,
-          'Trecho fora da duração do áudio descarregado.',
+          'Segment is outside the downloaded audio duration.',
           'out_of_bounds',
         );
       }
@@ -111,7 +111,7 @@ export function playRouter(paths: AppPaths): Router {
         } catch {
           /* noop */
         }
-        throw new HttpError(502, 'Falha ao gerar pré-escuta do trecho.', 'preview_failed');
+        throw new HttpError(502, 'Failed to generate the segment preview.', 'preview_failed');
       }
 
       playAudio({
@@ -134,10 +134,10 @@ export function playRouter(paths: AppPaths): Router {
       const db = getDb(paths.databaseFile);
       const row = getClipById(db, id);
       if (!row) {
-        throw new HttpError(404, 'Clipe não encontrado.', 'clip_not_found');
+        throw new HttpError(404, 'Clip not found.', 'clip_not_found');
       }
       if (!existsSync(row.audio_path)) {
-        throw new HttpError(404, 'Ficheiro de áudio não encontrado.', 'audio_missing');
+        throw new HttpError(404, 'Audio file not found.', 'audio_missing');
       }
       playAudio({
         ffplayExe: paths.ffplayExe,
@@ -161,7 +161,7 @@ function clampVolume(value: number): number {
 function parseClipIdParam(raw: string | undefined): number {
   const id = Number(raw);
   if (!Number.isInteger(id) || id < 1) {
-    throw new HttpError(400, 'ID de clipe inválido.', 'invalid_id');
+    throw new HttpError(400, 'Invalid clip ID.', 'invalid_id');
   }
   return id;
 }

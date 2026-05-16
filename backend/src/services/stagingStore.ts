@@ -23,7 +23,7 @@ export function cleanupExpiredStaging(mediaTempDir: string, ttlMs = SEVEN_DAYS_M
         unlinkSync(full);
         removed += 1;
       } catch (err) {
-        logger.warn(`falha a remover staging expirado ${full}`, err);
+        logger.warn(`failed to remove expired staging file ${full}`, err);
       }
     }
   }

@@ -1,5 +1,5 @@
-// Formato único da v1: HH:MM:SS.mmm (sempre exactos 12 caracteres).
-// Ver §6.2 da especificação.
+// Single v1 format: HH:MM:SS.mmm, always exactly 12 characters.
+// See section 6.2 of the specification.
 
 const TIME_REGEX = /^(\d{2}):(\d{2}):(\d{2})\.(\d{3})$/;
 
@@ -16,7 +16,7 @@ export function timeStringToSeconds(value: string): number {
   const m = TIME_REGEX.exec(value);
   if (!m) {
     throw new Error(
-      `Tempo inválido (esperado HH:MM:SS.mmm): "${value}"`,
+      `Invalid time (expected HH:MM:SS.mmm): "${value}"`,
     );
   }
   const hh = Number(m[1]);
@@ -28,7 +28,7 @@ export function timeStringToSeconds(value: string): number {
 
 export function secondsToTimeString(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {
-    throw new Error(`Segundos inválidos: ${totalSeconds}`);
+    throw new Error(`Invalid seconds: ${totalSeconds}`);
   }
   const totalMs = Math.round(totalSeconds * 1000);
   const ms = totalMs % 1000;

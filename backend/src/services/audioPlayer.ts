@@ -8,15 +8,15 @@ let activeCleanupFile: string | null = null;
 export interface PlayOptions {
   ffplayExe: string;
   audioFile: string;
-  /** Volume 0–300. 100 é o volume neutro do ffplay. */
+  /** Volume 0-300. 100 is ffplay's neutral volume. */
   volume: number;
-  /** Aplica normalização perceptual na pré-escuta. */
+  /** Applies perceptual normalization to the preview. */
   normalizeAudio?: boolean;
-  /** Início em segundos (decimal); se omitido, toca do princípio. */
+  /** Start in seconds (decimal); when omitted, plays from the beginning. */
   startSeconds?: number;
-  /** Duração em segundos (decimal); se omitido, toca até ao fim. */
+  /** Duration in seconds (decimal); when omitted, plays until the end. */
   durationSeconds?: number;
-  /** Remove este ficheiro quando a reprodução terminar ou for interrompida. */
+  /** Removes this file when playback finishes or is interrupted. */
   cleanupFileOnExit?: string;
 }
 
@@ -57,13 +57,13 @@ export function playAudio(options: PlayOptions): void {
   child.on('exit', (code, signal) => {
     if (activeProcess === child) activeProcess = null;
     cleanupActiveFile(child);
-    logger.debug('ffplay encerrou', { code, signal });
+    logger.debug('ffplay exited', { code, signal });
   });
 
   child.on('error', (err) => {
     if (activeProcess === child) activeProcess = null;
     cleanupActiveFile(child);
-    logger.error('falha a executar ffplay', err);
+    logger.error('failed to run ffplay', err);
   });
 
   activeProcess = child;
@@ -75,7 +75,7 @@ export function stopActivePlayback(): void {
   try {
     activeProcess.kill();
   } catch (err) {
-    logger.warn('erro a parar reprodução activa', err);
+    logger.warn('error stopping active playback', err);
   }
   cleanupActiveFile(activeProcess);
   activeProcess = null;
@@ -117,6 +117,6 @@ function cleanupActiveFile(child: ChildProcess): void {
   try {
     unlinkSync(filePath);
   } catch (err) {
-    logger.warn('erro a remover preview temporário', err);
+    logger.warn('error removing temporary preview', err);
   }
 }

@@ -22,9 +22,9 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
 
-  logger.error('erro não tratado na rota', err);
+  logger.error('unhandled route error', err);
   res.status(500).json({
     error: 'internal_error',
-    message: 'Erro interno no servidor.',
+    message: 'Internal server error.',
   });
 };

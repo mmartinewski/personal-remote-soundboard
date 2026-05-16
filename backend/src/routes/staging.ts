@@ -20,14 +20,14 @@ export function stagingRouter(paths: AppPaths): Router {
       try {
         const processId = String(req.params.processId ?? '');
         if (!isValidProcessId(processId)) {
-          throw new HttpError(400, 'process_id inválido.', 'invalid_process_id');
+          throw new HttpError(400, 'Invalid process_id.', 'invalid_process_id');
         }
         const meta = readStagingMeta(paths.mediaTemp, processId);
         if (!meta) {
-          throw new HttpError(404, 'Staging não encontrado ou expirado.', 'staging_not_found');
+          throw new HttpError(404, 'Staging not found or expired.', 'staging_not_found');
         }
         if (stagingMetaExpired(meta, SEVEN_DAYS_MS)) {
-          throw new HttpError(410, 'Staging expirado.', 'staging_expired');
+          throw new HttpError(410, 'Staging expired.', 'staging_expired');
         }
 
         const image = await fetchYoutubeThumbnail(meta.youtubeUrl);
@@ -44,18 +44,18 @@ export function stagingRouter(paths: AppPaths): Router {
     try {
       const processId = String(req.params.processId ?? '');
       if (!isValidProcessId(processId)) {
-        throw new HttpError(400, 'process_id inválido.', 'invalid_process_id');
+        throw new HttpError(400, 'Invalid process_id.', 'invalid_process_id');
       }
       const meta = readStagingMeta(paths.mediaTemp, processId);
       if (!meta) {
-        throw new HttpError(404, 'Staging não encontrado ou expirado.', 'staging_not_found');
+        throw new HttpError(404, 'Staging not found or expired.', 'staging_not_found');
       }
       if (stagingMetaExpired(meta, SEVEN_DAYS_MS)) {
-        throw new HttpError(410, 'Staging expirado.', 'staging_expired');
+        throw new HttpError(410, 'Staging expired.', 'staging_expired');
       }
       const filePath = meta.audioPath;
       if (!existsSync(filePath)) {
-        throw new HttpError(404, 'Ficheiro de áudio em staging não encontrado.', 'staging_file_missing');
+        throw new HttpError(404, 'Staging audio file not found.', 'staging_file_missing');
       }
 
       const stat = statSync(filePath);
@@ -72,7 +72,7 @@ export function stagingRouter(paths: AppPaths): Router {
         if (Number.isNaN(start) || start < 0) start = 0;
         if (Number.isNaN(end) || end >= size) end = size - 1;
         if (start > end) {
-          throw new HttpError(416, 'Range inválido.', 'invalid_range');
+          throw new HttpError(416, 'Invalid range.', 'invalid_range');
         }
         const chunkSize = end - start + 1;
         res.status(206);
@@ -107,8 +107,8 @@ async function fetchYoutubeThumbnail(youtubeUrl: string): Promise<{
         contentType,
       };
     } catch {
-      /* tenta o próximo candidato */
+      /* try the next candidate */
     }
   }
-  throw new HttpError(404, 'Thumbnail do YouTube não encontrada.', 'thumbnail_not_found');
+  throw new HttpError(404, 'YouTube thumbnail not found.', 'thumbnail_not_found');
 }

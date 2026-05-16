@@ -15,12 +15,12 @@ export function thumbnailsRouter(paths: AppPaths): Router {
       try {
         const id = Number(req.params.id);
         if (!Number.isInteger(id) || id < 1) {
-          throw new HttpError(400, 'ID inválido.', 'invalid_id');
+          throw new HttpError(400, 'Invalid ID.', 'invalid_id');
         }
         const db = getDb(paths.databaseFile);
         const row = getClipById(db, id);
         if (!row) {
-          throw new HttpError(404, 'Clipe não encontrado.', 'clip_not_found');
+          throw new HttpError(404, 'Clip not found.', 'clip_not_found');
         }
         const filePath =
           kind === 'original'
@@ -30,10 +30,10 @@ export function thumbnailsRouter(paths: AppPaths): Router {
         const base = resolve(paths.mediaThumbnails);
         const rel = relative(base, resolved);
         if (rel.startsWith('..') || rel.includes('..')) {
-          throw new HttpError(500, 'Caminho de thumbnail inválido.', 'path_safety');
+          throw new HttpError(500, 'Invalid thumbnail path.', 'path_safety');
         }
         if (!existsSync(resolved)) {
-          throw new HttpError(404, 'Thumbnail não encontrada.', 'thumb_missing');
+          throw new HttpError(404, 'Thumbnail not found.', 'thumb_missing');
         }
         const mime =
           resolved.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';

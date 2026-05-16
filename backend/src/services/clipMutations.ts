@@ -37,7 +37,7 @@ function assertPathUnderDir(dir: string, filePath: string): void {
   const base = resolve(dir) + sep;
   const target = resolve(filePath);
   if (!target.toLowerCase().startsWith(base.toLowerCase())) {
-    throw new HttpError(500, 'Caminho fora do diretório permitido.', 'path_safety');
+    throw new HttpError(500, 'Path is outside the allowed directory.', 'path_safety');
   }
 }
 
@@ -56,21 +56,21 @@ function validateTimesAgainstStaging(
   endTime: string,
 ): { startSec: number; endSec: number; durationSec: number } {
   if (!isValidTimeString(startTime) || !isValidTimeString(endTime)) {
-    throw new HttpError(400, 'Tempos inválidos (HH:MM:SS.mmm).', 'invalid_time');
+    throw new HttpError(400, 'Invalid times (HH:MM:SS.mmm).', 'invalid_time');
   }
   const startSec = timeStringToSeconds(startTime);
   const endSec = timeStringToSeconds(endTime);
   if (endSec <= startSec) {
-    throw new HttpError(400, 'end_time deve ser maior que start_time.', 'invalid_range');
+    throw new HttpError(400, 'end_time must be greater than start_time.', 'invalid_range');
   }
   const durationSec = endSec - startSec;
   if (durationSec > MAX_CLIP_SECONDS + 0.001) {
-    throw new HttpError(400, 'O trecho não pode exceder 30 segundos.', 'clip_too_long');
+    throw new HttpError(400, 'The segment cannot exceed 30 seconds.', 'clip_too_long');
   }
   if (startSec < -0.001 || endSec > meta.durationSeconds + 0.05) {
     throw new HttpError(
       400,
-      'Trecho fora da duração do áudio descarregado.',
+      'Segment is outside the downloaded audio duration.',
       'out_of_bounds',
     );
   }
@@ -84,7 +84,7 @@ export async function createClipFromUpload(
 ): Promise<number> {
   const meta = readStagingMeta(paths.mediaTemp, input.processId);
   if (!meta || stagingMetaExpired(meta, STAGING_TTL_MS)) {
-    throw new HttpError(400, 'process_id inválido ou staging expirado.', 'invalid_process_id');
+    throw new HttpError(400, 'Invalid process_id or expired staging.', 'invalid_process_id');
   }
   const { startSec, endSec, durationSec } = validateTimesAgainstStaging(
     meta,
@@ -122,7 +122,7 @@ export async function createClipFromUpload(
     cleanupQuiet([tmpOrig, tmpCrop, tmpMp3]);
     throw new HttpError(
       502,
-      'Falha ao cortar/encodar o áudio (FFmpeg).',
+      'Failed to trim/encode the audio (FFmpeg).',
       'ffmpeg_failed',
     );
   }
@@ -237,12 +237,12 @@ export async function updateClipFromUpload(
       }
     | undefined;
   if (!row) {
-    throw new HttpError(404, 'Clipe não encontrado.', 'clip_not_found');
+    throw new HttpError(404, 'Clip not found.', 'clip_not_found');
   }
 
   const meta = readStagingMeta(paths.mediaTemp, input.processId);
   if (!meta || stagingMetaExpired(meta, STAGING_TTL_MS)) {
-    throw new HttpError(400, 'process_id inválido ou staging expirado.', 'invalid_process_id');
+    throw new HttpError(400, 'Invalid process_id or expired staging.', 'invalid_process_id');
   }
   const { startSec, endSec, durationSec } = validateTimesAgainstStaging(
     meta,
@@ -263,7 +263,7 @@ export async function updateClipFromUpload(
     });
   } catch {
     cleanupQuiet([tmpMp3]);
-    throw new HttpError(502, 'Falha ao cortar/encodar o áudio.', 'ffmpeg_failed');
+    throw new HttpError(502, 'Failed to trim/encode the audio.', 'ffmpeg_failed');
   }
 
   let newOrig = row.thumbnail_original_path;

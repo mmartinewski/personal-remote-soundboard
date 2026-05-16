@@ -53,13 +53,13 @@ export interface DownloadAudioOptions {
   ytDlpExe: string;
   ffmpegExe: string;
   url: string;
-  /** Caminho final, sem extensão; o yt-dlp adiciona conforme o formato baixado. */
+  /** Final path without extension; yt-dlp adds the downloaded format extension. */
   outputBase: string;
 }
 
 /**
- * Baixa apenas o melhor stream de áudio disponível.
- * Devolve o caminho do ficheiro gerado (extensão definida pelo yt-dlp).
+ * Downloads only the best available audio stream.
+ * Returns the generated file path, with the extension chosen by yt-dlp.
  */
 export async function downloadBestAudio(options: DownloadAudioOptions): Promise<string> {
   const { stdout } = await execFileAsync(options.ytDlpExe, [
@@ -77,7 +77,7 @@ export async function downloadBestAudio(options: DownloadAudioOptions): Promise<
   ]);
   const filePath = stdout.trim().split(/\r?\n/).pop() ?? '';
   if (!filePath) {
-    throw new Error('yt-dlp não devolveu o caminho do ficheiro descarregado.');
+    throw new Error('yt-dlp did not return the downloaded file path.');
   }
   return filePath;
 }

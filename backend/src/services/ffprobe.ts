@@ -18,7 +18,7 @@ export async function probeDurationSeconds(
   ]);
   const value = Number(stdout.trim());
   if (!Number.isFinite(value)) {
-    throw new Error(`ffprobe devolveu duração inválida: "${stdout}"`);
+    throw new Error(`ffprobe returned an invalid duration: "${stdout}"`);
   }
   return value;
 }

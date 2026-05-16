@@ -75,7 +75,7 @@ function parseTags(raw: string): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const tag of raw.split(/[,\n;]/).map((item) => item.trim()).filter(Boolean)) {
-    const key = tag.toLocaleLowerCase('pt');
+    const key = tag.toLocaleLowerCase('en');
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(tag);
@@ -178,7 +178,7 @@ function WaveformTrimmer({
         setPeaks(nextPeaks.map((p) => p / peakMax));
       } catch {
         if (!cancelled) {
-          setWaveError('Não foi possível desenhar o gráfico deste áudio.');
+          setWaveError('Could not draw the waveform for this audio.');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -285,9 +285,9 @@ function WaveformTrimmer({
   return (
     <div className="sm:col-span-2 rounded-md border border-surface/70 bg-bg/40 p-3">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium">Recorte do áudio</h3>
+        <h3 className="text-sm font-medium">Audio trim</h3>
         <span className="text-xs text-text-muted">
-          Arraste as alças no gráfico para ajustar início e fim.
+          Drag the handles on the waveform to adjust start and end.
         </span>
       </div>
       <canvas
@@ -298,10 +298,10 @@ function WaveformTrimmer({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       />
-      {loading && <p className="mt-2 text-xs text-text-muted">A gerar waveform...</p>}
+      {loading && <p className="mt-2 text-xs text-text-muted">Generating waveform...</p>}
       {waveError && <p className="mt-2 text-xs text-red-300">{waveError}</p>}
       <p className="mt-2 text-xs text-text-muted">
-        Início <span className="font-mono text-text">{startTime}</span> · Fim{' '}
+        Start <span className="font-mono text-text">{startTime}</span> · End{' '}
         <span className="font-mono text-text">{endTime}</span>
       </p>
     </div>
@@ -414,7 +414,7 @@ function ThumbnailCropper({
         <img
           ref={imgRef}
           src={src}
-          alt="Pré-visualização da thumbnail"
+          alt="Thumbnail preview"
           className="block max-h-72 w-auto max-w-full select-none"
           onLoad={() => {
             const img = imgRef.current;
@@ -444,7 +444,7 @@ function ThumbnailCropper({
       {crop && (
         <div className="mt-3 max-w-md">
           <label htmlFor="thumbnail-zoom" className="block text-xs font-medium text-text-muted">
-            Zoom da thumbnail: {zoom}%
+            Thumbnail zoom: {zoom}%
           </label>
           <input
             id="thumbnail-zoom"
@@ -458,7 +458,7 @@ function ThumbnailCropper({
         </div>
       )}
       <p className="mt-2 text-xs text-text-muted">
-        Ajuste o zoom e arraste o quadrado para escolher a região 1:1 da thumbnail.
+        Adjust the zoom and drag the square to choose the 1:1 thumbnail area.
       </p>
     </div>
   );
@@ -684,7 +684,7 @@ export default function ClipFormPage({ mode }: Props) {
     try {
       const res = await fetch(suggestedThumbnailUrl);
       if (!res.ok) {
-        throw new Error(`Não foi possível carregar a thumbnail (${res.status}).`);
+        throw new Error(`Could not load the thumbnail (${res.status}).`);
       }
       const blob = await res.blob();
       const ext = blob.type === 'image/png' ? 'png' : 'jpg';
@@ -706,7 +706,7 @@ export default function ClipFormPage({ mode }: Props) {
     if (!next) return;
     setTags((current) => {
       const exists = current.some(
-        (tag) => tag.toLocaleLowerCase('pt') === next.toLocaleLowerCase('pt'),
+        (tag) => tag.toLocaleLowerCase('en') === next.toLocaleLowerCase('en'),
       );
       return exists ? current : [...current, next];
     });
@@ -741,15 +741,15 @@ export default function ClipFormPage({ mode }: Props) {
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (mode === 'create' && !thumbFile) {
-      setError('Seleccione uma imagem para a thumbnail (≤ 1 MB).');
+      setError('Select a thumbnail image (<= 1 MB).');
       return;
     }
     if (!processId) {
-      setError('Carregue o áudio do YouTube antes de guardar.');
+      setError('Load the YouTube audio before saving.');
       return;
     }
     if (!thumbReady) {
-      setError('Aguarde o carregamento da imagem da thumbnail.');
+      setError('Wait for the thumbnail image to finish loading.');
       return;
     }
     setSaving(true);
@@ -771,12 +771,12 @@ export default function ClipFormPage({ mode }: Props) {
 
   if (mode === 'edit' && (!Number.isInteger(clipId) || clipId < 1)) {
     return (
-      <p className="text-sm text-red-300">ID de clipe inválido na URL.</p>
+      <p className="text-sm text-red-300">Invalid clip ID in the URL.</p>
     );
   }
 
   if (loadingClip) {
-    return <p className="text-text-muted">A carregar clipe…</p>;
+    return <p className="text-text-muted">Loading clip...</p>;
   }
 
   return (
@@ -792,7 +792,7 @@ export default function ClipFormPage({ mode }: Props) {
               type="button"
               onClick={() => setError(null)}
               className="text-red-200 hover:text-white"
-              aria-label="Fechar mensagem de erro"
+              aria-label="Close error message"
             >
               x
             </button>
@@ -802,11 +802,11 @@ export default function ClipFormPage({ mode }: Props) {
 
       <header>
         <h2 className="text-xl font-semibold">
-          {mode === 'create' ? 'Novo clipe' : 'Editar clipe'}
+          {mode === 'create' ? 'New clip' : 'Edit clip'}
         </h2>
         <p className="text-sm text-text-muted">
-          Descarregue o áudio, defina o trecho (máx. {MAX_CLIP_SEC}s), ajuste a
-          thumbnail e guarde.
+          Download the audio, choose the segment (max. {MAX_CLIP_SEC}s), adjust
+          the thumbnail, and save.
         </p>
       </header>
 
@@ -831,7 +831,7 @@ export default function ClipFormPage({ mode }: Props) {
               onClick={() => void handlePrefetch()}
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {prefetching ? 'A descarregar…' : 'Carregar áudio'}
+              {prefetching ? 'Downloading...' : 'Load audio'}
             </button>
             {validUrl && (
               <a
@@ -840,18 +840,17 @@ export default function ClipFormPage({ mode }: Props) {
                 rel="noreferrer"
                 className="rounded-md border border-surface px-4 py-2 text-sm font-medium hover:border-accent"
               >
-                Abrir YouTube
+                Open YouTube
               </a>
             )}
           </div>
           {mode === 'edit' && (
             <p className="mt-2 text-xs text-text-muted">
-              O áudio foi recarregado automaticamente para permitir cortes
-              actualizados.
+              The audio was reloaded automatically so the trim can be updated.
             </p>
           )}
           {!validUrl && youtubeUrl.length > 0 && (
-            <p className="mt-2 text-sm text-red-300">URL do YouTube inválida.</p>
+            <p className="mt-2 text-sm text-red-300">Invalid YouTube URL.</p>
           )}
         </div>
 
@@ -889,11 +888,11 @@ export default function ClipFormPage({ mode }: Props) {
                   setVolume(Math.max(0, Math.min(300, Math.round(next))));
                 }}
                 className="w-20 rounded-md border border-surface bg-bg px-2 py-1 text-sm outline-none focus:border-accent"
-                aria-label="Volume do clipe"
+                aria-label="Clip volume"
               />
             </div>
             <p className="mt-1 text-xs text-text-muted">
-              100 é o volume neutro; use até 300 para reforçar clipes mais baixos.
+              100 is neutral volume; use up to 300 to boost quieter clips.
             </p>
           </div>
           <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
@@ -903,19 +902,19 @@ export default function ClipFormPage({ mode }: Props) {
               onClick={() => void handleTestPlay()}
               className="rounded-md border border-surface bg-bg px-4 py-2 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {testing ? 'A tocar…' : 'Ouvir trecho'}
+              {testing ? 'Playing...' : 'Preview segment'}
             </button>
             {timesOk && (
               <span className="text-xs text-text-muted">
-                Duração do trecho: {clipLen.toFixed(3)}s
-                {!clipLenOk && ` — máximo ${MAX_CLIP_SEC}s`}
-                {!durationOk && ' — fora da duração descarregada'}
+                Segment duration: {clipLen.toFixed(3)}s
+                {!clipLenOk && ` - maximum ${MAX_CLIP_SEC}s`}
+                {!durationOk && ' - outside the downloaded duration'}
               </span>
             )}
             {(!timesOk || !isValidTimeString(startTime) || !isValidTimeString(endTime)) &&
               (startTime.length > 0 || endTime.length > 0) && (
                 <span className="text-xs text-red-300">
-                  Use o formato HH:MM:SS.mmm (ex.: 00:01:23.456).
+                  Use the HH:MM:SS.mmm format (ex.: 00:01:23.456).
                 </span>
               )}
           </div>
@@ -934,11 +933,11 @@ export default function ClipFormPage({ mode }: Props) {
                 className="rounded-md border border-surface bg-bg px-3 py-1.5 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loadingSuggestedThumbnail
-                  ? 'A carregar thumbnail…'
-                  : 'Usar thumbnail do YouTube'}
+                  ? 'Loading thumbnail...'
+                  : 'Use YouTube thumbnail'}
               </button>
               <span className="text-xs text-text-muted">
-                Usa a imagem sugerida pelo vídeo e permite ajustar o crop abaixo.
+                Uses the image suggested by the video and lets you adjust the crop below.
               </span>
             </div>
           )}
@@ -964,7 +963,7 @@ export default function ClipFormPage({ mode }: Props) {
         <div className="space-y-3 rounded-md border border-surface bg-surface-soft p-4">
           <div>
             <label htmlFor="title" className="block text-sm font-medium">
-              Título
+              Title
             </label>
             <input
               id="title"
@@ -976,7 +975,7 @@ export default function ClipFormPage({ mode }: Props) {
           </div>
           <div>
             <label htmlFor="category" className="block text-sm font-medium">
-              Categoria
+              Category
             </label>
             <input
               id="category"
@@ -984,7 +983,7 @@ export default function ClipFormPage({ mode }: Props) {
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               required
-              placeholder="Nome da categoria"
+              placeholder="Category name"
               className="mt-1 w-full rounded-md border border-surface bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
             />
             <datalist id="category-suggestions">
@@ -993,12 +992,12 @@ export default function ClipFormPage({ mode }: Props) {
               ))}
             </datalist>
             <p className="mt-1 text-xs text-text-muted">
-              Se a categoria não existir, ela será criada ao guardar.
+              If the category does not exist, it will be created when you save.
             </p>
           </div>
           <div>
             <label htmlFor="tags" className="block text-sm font-medium">
-              Etiquetas
+              Tags
             </label>
             <div className="mt-1 flex gap-2">
               <input
@@ -1012,7 +1011,7 @@ export default function ClipFormPage({ mode }: Props) {
                     addTag(tagInput);
                   }
                 }}
-                placeholder="Digite uma etiqueta"
+                placeholder="Type a tag"
                 className="min-w-0 flex-1 rounded-md border border-surface bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
               />
               <button
@@ -1021,7 +1020,7 @@ export default function ClipFormPage({ mode }: Props) {
                 disabled={!tagInput.trim()}
                 className="rounded-md border border-surface px-3 py-2 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Adicionar
+                Add
               </button>
             </div>
             <datalist id="tag-suggestions">
@@ -1041,7 +1040,7 @@ export default function ClipFormPage({ mode }: Props) {
                       type="button"
                       onClick={() => removeTag(tag)}
                       className="text-text-muted hover:text-red-200"
-                      aria-label={`Remover etiqueta ${tag}`}
+                      aria-label={`Remove tag ${tag}`}
                     >
                       x
                     </button>
@@ -1050,7 +1049,7 @@ export default function ClipFormPage({ mode }: Props) {
               </div>
             ) : (
               <p className="mt-1 text-xs text-text-muted">
-                Adicione uma ou mais etiquetas reaproveitáveis.
+                Add one or more reusable tags.
               </p>
             )}
           </div>
@@ -1061,7 +1060,7 @@ export default function ClipFormPage({ mode }: Props) {
               onChange={(e) => setIsFavorite(e.target.checked)}
               className="rounded border-surface"
             />
-            Favorito
+            Favorite
           </label>
         </div>
 
@@ -1071,14 +1070,14 @@ export default function ClipFormPage({ mode }: Props) {
             disabled={saving || !(mode === 'create' ? canSaveCreate : canSaveEdit)}
             className="rounded-md bg-accent px-5 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {saving ? 'A guardar…' : 'Guardar clipe'}
+            {saving ? 'Saving...' : 'Save clip'}
           </button>
           <button
             type="button"
             onClick={() => navigate('/')}
             className="rounded-md border border-surface px-5 py-2 text-sm hover:border-accent"
           >
-            Cancelar
+            Cancel
           </button>
         </div>
       </form>

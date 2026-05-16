@@ -6,8 +6,8 @@ const VERSION = '0.1.0';
 export function healthRouter(paths: AppPaths): Router {
   const router = Router();
 
-  // Com `app.use('/api/health', router)`, pedidos sem barra final deixam `req.path`
-  // vazio em alguns casos — registar `''` e `'/'` evita 404/500 no dashboard.
+  // With `app.use('/api/health', router)`, requests without a trailing slash can
+  // leave `req.path` empty, so registering both `''` and `'/'` avoids dashboard 404/500s.
   const handler = (_req: Request, res: Response) => {
     res.json({
       status: 'ok',

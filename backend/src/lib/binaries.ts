@@ -15,7 +15,7 @@ export function assertBinaries(paths: AppPaths): void {
   if (missing.length > 0) {
     throw new HttpError(
       503,
-      `Binários em falta em /bin: ${missing.join(', ')}. Corra npm run fetch:bin.`,
+      `Missing binaries in /bin: ${missing.join(', ')}. Run npm run fetch:bin.`,
       'binaries_missing',
     );
   }

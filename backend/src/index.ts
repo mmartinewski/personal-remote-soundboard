@@ -12,34 +12,34 @@ async function main(): Promise<void> {
   ensureAppDataDirs(paths);
 
   initLogger(paths.logFile);
-  logger.info('a arrancar Personal Clip Player', { appData: paths.appData });
+  logger.info('starting Personal Clip Player', { appData: paths.appData });
 
   const port = resolvePort(paths.configFile);
-  logger.info(`porta resolvida: ${port}`);
+  logger.info(`resolved port: ${port}`);
 
   const db = getDb(paths.databaseFile);
   migrate(db);
-  logger.info('migrações SQLite aplicadas');
+  logger.info('SQLite migrations applied');
 
   const removed = cleanupExpiredStaging(paths.mediaTemp);
   if (removed > 0) {
-    logger.info(`limpeza inicial: ${removed} ficheiro(s) de staging removido(s)`);
+    logger.info(`initial cleanup: removed ${removed} staging file(s)`);
   }
 
   const app = createApp(paths);
 
   const server = app.listen(port, '0.0.0.0', () => {
-    logger.info(`Express a ouvir em http://0.0.0.0:${port}`);
+    logger.info(`Express listening at http://0.0.0.0:${port}`);
   });
 
   const shutdown = (signal: string) => {
-    logger.info(`recebido ${signal}, a encerrar...`);
+    logger.info(`received ${signal}, shutting down...`);
     stopActivePlayback();
     server.close(() => {
       try {
         db.close();
       } catch (err) {
-        logger.warn('erro a fechar SQLite', err);
+        logger.warn('error closing SQLite', err);
       }
       closeLogger();
       process.exit(0);
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error('falha no arranque', err);
+  logger.error('startup failed', err);
   closeLogger();
   process.exit(1);
 });

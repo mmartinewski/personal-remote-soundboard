@@ -27,8 +27,8 @@ export function parseCropMeta(raw: string | undefined | null): CropMeta | null {
 }
 
 /**
- * Gera o ficheiro 1:1 a partir do original. Se `crop` for omitido, calcula
- * um crop centrado e quadrado a partir das dimensões da imagem.
+ * Generates the 1:1 file from the original image. When `crop` is omitted,
+ * calculates a centered square crop from the image dimensions.
  */
 export async function generateSquareThumbnail(
   originalPath: string,
@@ -41,7 +41,7 @@ export async function generateSquareThumbnail(
   const sourceHeight = metadata.height ?? 0;
 
   if (sourceWidth === 0 || sourceHeight === 0) {
-    throw new Error('Não foi possível ler dimensões da imagem original.');
+    throw new Error('Could not read the original image dimensions.');
   }
 
   const effectiveCrop = crop ?? defaultCenteredSquareCrop(sourceWidth, sourceHeight);

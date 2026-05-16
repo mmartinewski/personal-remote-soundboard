@@ -30,7 +30,7 @@ export function settingsRouter(): Router {
       if (!Number.isFinite(value)) {
         throw new HttpError(
           400,
-          'playback_volume deve ser um número 0–100.',
+          'playback_volume must be a number from 0 to 100.',
           'invalid_payload',
         );
       }

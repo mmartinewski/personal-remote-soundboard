@@ -18,7 +18,7 @@ export default function App() {
               to="/clips/new"
               className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-soft"
             >
-              Novo clipe
+              New clip
             </Link>
           </nav>
         </div>

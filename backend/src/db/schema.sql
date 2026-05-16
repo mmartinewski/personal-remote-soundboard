@@ -1,5 +1,5 @@
--- Schema canónico da v1. Ver §5 da especificação técnica.
--- Mantém-se idempotente: pode correr em arranques sucessivos.
+-- Canonical v1 schema. See section 5 of the technical specification.
+-- Kept idempotent so it can run on successive startups.
 
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS clips (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     youtube_url TEXT NOT NULL,
-    start_time TEXT NOT NULL,            -- formato HH:MM:SS.mmm (ver §6.2)
-    end_time TEXT NOT NULL,              -- formato HH:MM:SS.mmm (ver §6.2)
+    start_time TEXT NOT NULL,            -- HH:MM:SS.mmm format (see section 6.2)
+    end_time TEXT NOT NULL,              -- HH:MM:SS.mmm format (see section 6.2)
     category_id INTEGER,
     tags TEXT,
     thumbnail_original_path TEXT NOT NULL,

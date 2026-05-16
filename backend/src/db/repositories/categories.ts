@@ -18,7 +18,7 @@ export function findOrCreateCategory(
 ): CategoryRow {
   const trimmed = name.trim();
   if (trimmed.length === 0) {
-    throw new Error('Nome da categoria não pode estar vazio.');
+    throw new Error('Category name cannot be empty.');
   }
 
   const existing = db

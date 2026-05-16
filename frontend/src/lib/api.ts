@@ -21,7 +21,7 @@ export interface ClipDto {
 }
 
 export type ClipsSection =
-  | { type: 'favorites'; title: 'Favoritos'; clips: ClipDto[] }
+  | { type: 'favorites'; title: 'Favorites'; clips: ClipDto[] }
   | { type: 'category'; category: { id: number | null; name: string }; clips: ClipDto[] };
 
 export interface ClipsResponse {
@@ -70,7 +70,7 @@ async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
       /* noop */
     }
     throw new Error(
-      detail || `Pedido falhou (${res.status} ${res.statusText})`,
+      detail || `Request failed (${res.status} ${res.statusText})`,
     );
   }
   return (await res.json()) as T;

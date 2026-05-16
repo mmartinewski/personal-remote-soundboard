@@ -2,7 +2,7 @@
   "name": "personal-clip-player",
   "private": true,
   "version": "0.1.0",
-  "description": "Soundboard local de clipes do YouTube com reprodução server-side e UI controlável por LAN.",
+  "description": "Local YouTube clip soundboard with server-side playback and a LAN-controllable UI.",
   "workspaces": [
     "backend",
     "frontend"

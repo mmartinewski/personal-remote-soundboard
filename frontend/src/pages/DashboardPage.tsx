@@ -102,28 +102,28 @@ export default function DashboardPage() {
   if (error) {
     return (
       <section className="rounded-md border border-red-500/40 bg-red-500/10 p-4 text-red-200">
-        <p className="font-semibold">Erro ao contactar o backend.</p>
+        <p className="font-semibold">Could not contact the backend.</p>
         <p className="text-sm opacity-80">{error}</p>
       </section>
     );
   }
 
   if (!clips) {
-    return <p className="text-text-muted">A carregar…</p>;
+    return <p className="text-text-muted">Loading...</p>;
   }
 
   return (
     <section className="space-y-6">
       <div className="sticky top-0 z-30 rounded-md border border-surface bg-bg/95 p-3 shadow-lg backdrop-blur">
         <label htmlFor="dashboard-search" className="block text-sm font-medium">
-          Buscar clipes
+          Search clips
         </label>
         <div className="mt-2 flex gap-2">
           <input
             id="dashboard-search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Título, categoria ou etiqueta..."
+            placeholder="Title, category, or tag..."
             className="min-w-0 flex-1 rounded-md border border-surface bg-bg-soft px-3 py-2 text-sm outline-none focus:border-accent"
           />
           {search && (
@@ -132,7 +132,7 @@ export default function DashboardPage() {
               onClick={() => setSearch('')}
               className="rounded-md border border-surface px-3 py-2 text-sm hover:border-accent"
             >
-              Limpar
+              Clear
             </button>
           )}
         </div>
@@ -144,10 +144,10 @@ export default function DashboardPage() {
           className="rounded-md border border-surface bg-surface-soft p-4"
         >
           <h3 className="mb-2 text-base font-semibold">
-            {section.type === 'favorites' ? 'Favoritos' : section.category.name}
+            {section.type === 'favorites' ? 'Favorites' : section.category.name}
           </h3>
           {section.clips.length === 0 ? (
-            <p className="text-sm text-text-muted">Sem clipes nesta secção.</p>
+            <p className="text-sm text-text-muted">No clips in this section.</p>
           ) : (
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
               {section.clips.map((clip) => {
@@ -166,7 +166,7 @@ export default function DashboardPage() {
                     />
                     <button
                       type="button"
-                      aria-label={clip.is_favorite === 1 ? 'Remover dos favoritos' : 'Marcar como favorito'}
+                      aria-label={clip.is_favorite === 1 ? 'Remove from favorites' : 'Mark as favorite'}
                       onClick={() => void handleToggleFavorite(clip)}
                       disabled={favoriteId === clip.id}
                       className={
@@ -178,7 +178,7 @@ export default function DashboardPage() {
                     </button>
                     <button
                       type="button"
-                      aria-label="Abrir menu do clipe"
+                      aria-label="Open clip menu"
                       onClick={() => setOpenMenuKey((current) => (current === menuKey ? null : menuKey))}
                       className="absolute right-2 top-2 z-20 rounded-full bg-black/45 px-2 py-1 text-xl leading-none text-white shadow backdrop-blur"
                     >
@@ -188,7 +188,7 @@ export default function DashboardPage() {
                       <>
                         <button
                           type="button"
-                          aria-label="Fechar menu"
+                          aria-label="Close menu"
                           onClick={() => setOpenMenuKey(null)}
                           className="fixed inset-0 z-20 cursor-default bg-transparent"
                         />
@@ -199,7 +199,7 @@ export default function DashboardPage() {
                           onClick={() => setOpenMenuKey(null)}
                         >
                           <span aria-hidden="true">✎</span>
-                          Editar
+                          Edit
                         </Link>
                         <button
                           type="button"
@@ -208,14 +208,14 @@ export default function DashboardPage() {
                           className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <span aria-hidden="true">🗑</span>
-                          {deletingId === clip.id ? 'Excluindo...' : 'Excluir'}
+                          {deletingId === clip.id ? 'Deleting...' : 'Delete'}
                         </button>
                       </div>
                       </>
                     )}
                     <button
                       type="button"
-                      aria-label={`Tocar ${clip.title}`}
+                      aria-label={`Play ${clip.title}`}
                       onClick={() => void handlePlay(clip.id)}
                       disabled={deletingId === clip.id}
                       className={
@@ -238,7 +238,7 @@ export default function DashboardPage() {
                   <div className="p-3">
                     <p className="truncate font-medium">{clip.title}</p>
                     <p className="truncate text-xs text-text-muted">
-                      {clip.category.name ?? '(sem categoria)'}
+                      {clip.category.name ?? '(uncategorized)'}
                     </p>
                   </div>
                   {cardErrors[clip.id] && (
@@ -268,10 +268,10 @@ export default function DashboardPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 id="delete-clip-title" className="text-lg font-semibold">
-              Excluir clipe?
+              Delete clip?
             </h2>
             <p className="mt-2 text-sm text-text-muted">
-              Esta ação removerá o clipe <strong className="text-text">{clipToDelete.title}</strong> e seus arquivos de áudio/thumbnail.
+              This action will remove <strong className="text-text">{clipToDelete.title}</strong> and its audio/thumbnail files.
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -280,7 +280,7 @@ export default function DashboardPage() {
                 disabled={deletingId === clipToDelete.id}
                 className="rounded-md border border-surface px-4 py-2 text-sm hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Cancelar
+                Cancel
               </button>
               <button
                 type="button"
@@ -288,7 +288,7 @@ export default function DashboardPage() {
                 disabled={deletingId === clipToDelete.id}
                 className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deletingId === clipToDelete.id ? 'Excluindo...' : 'Excluir'}
+                {deletingId === clipToDelete.id ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>

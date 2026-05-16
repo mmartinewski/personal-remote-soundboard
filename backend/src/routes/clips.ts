@@ -22,7 +22,7 @@ import { isValidYoutubeUrl } from '../services/youtube.js';
 
 interface SectionFavorites {
   type: 'favorites';
-  title: 'Favoritos';
+  title: 'Favorites';
   clips: ClipDto[];
 }
 interface SectionCategory {
@@ -79,7 +79,7 @@ export function clipsRouter(): Router {
       } else {
         byCategory.set(key, {
           type: 'category',
-          category: { id: row.category_id, name: row.category_name ?? '(sem categoria)' },
+          category: { id: row.category_id, name: row.category_name ?? '(uncategorized)' },
           clips: [dto],
         });
       }
@@ -87,7 +87,7 @@ export function clipsRouter(): Router {
 
     const favoritesSection: SectionFavorites = {
       type: 'favorites',
-      title: 'Favoritos',
+      title: 'Favorites',
       clips: favorites,
     };
 
@@ -108,9 +108,9 @@ export function clipsRouter(): Router {
     try {
       const db = getDb(paths.databaseFile);
       const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-      const q = query.toLocaleLowerCase('pt');
+      const q = query.toLocaleLowerCase('en');
       const categories = listCategories(db)
-        .filter((category) => !q || category.name.toLocaleLowerCase('pt').includes(q))
+        .filter((category) => !q || category.name.toLocaleLowerCase('en').includes(q))
         .slice(0, 10)
         .map((category) => ({ id: category.id, name: category.name }));
       res.json({ categories });
@@ -123,20 +123,20 @@ export function clipsRouter(): Router {
     try {
       const db = getDb(paths.databaseFile);
       const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-      const q = query.toLocaleLowerCase('pt');
+      const q = query.toLocaleLowerCase('en');
       const rows = db.prepare('SELECT tags FROM clips WHERE tags IS NOT NULL AND tags <> ?').all('') as Array<{
         tags: string | null;
       }>;
       const seen = new Map<string, string>();
       for (const row of rows) {
         for (const tag of parseTags(row.tags ?? '')) {
-          const key = tag.toLocaleLowerCase('pt');
+          const key = tag.toLocaleLowerCase('en');
           if (!seen.has(key)) seen.set(key, tag);
         }
       }
       const tags = Array.from(seen.values())
-        .filter((tag) => !q || tag.toLocaleLowerCase('pt').includes(q))
-        .sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }))
+        .filter((tag) => !q || tag.toLocaleLowerCase('en').includes(q))
+        .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
         .slice(0, 10);
       res.json({ tags });
     } catch (err) {
@@ -153,7 +153,7 @@ export function clipsRouter(): Router {
           const db = getDb(paths.databaseFile);
           const file = req.file;
           if (!file?.buffer?.length) {
-            throw new HttpError(400, 'Thumbnail obrigatória (≤ 1 MB).', 'missing_thumbnail');
+            throw new HttpError(400, 'Thumbnail is required (<= 1 MB).', 'missing_thumbnail');
           }
           const body = req.body as Record<string, unknown>;
           const youtubeUrl = field(body, 'youtube_url');
@@ -170,16 +170,16 @@ export function clipsRouter(): Router {
           const isFavorite = favRaw === '1' || favRaw === 'true' ? 1 : 0;
 
           if (!title) {
-            throw new HttpError(400, 'Título obrigatório.', 'missing_title');
+            throw new HttpError(400, 'Title is required.', 'missing_title');
           }
           if (!category) {
-            throw new HttpError(400, 'Categoria obrigatória.', 'missing_category');
+            throw new HttpError(400, 'Category is required.', 'missing_category');
           }
           if (!isValidProcessId(processId)) {
-            throw new HttpError(400, 'process_id inválido.', 'invalid_process_id');
+            throw new HttpError(400, 'Invalid process_id.', 'invalid_process_id');
           }
           if (!isValidYoutubeUrl(youtubeUrl)) {
-            throw new HttpError(400, 'URL do YouTube inválida.', 'invalid_youtube_url');
+            throw new HttpError(400, 'Invalid YouTube URL.', 'invalid_youtube_url');
           }
 
           const id = await createClipFromUpload(db, paths, {
@@ -198,7 +198,7 @@ export function clipsRouter(): Router {
             originalFilename: file.originalname ?? 'thumb.jpg',
             mimeType: file.mimetype,
           });
-          res.status(201).json({ id, message: 'Clipe criado.' });
+          res.status(201).json({ id, message: 'Clip created.' });
         } catch (err) {
           next(err);
         }
@@ -212,7 +212,7 @@ export function clipsRouter(): Router {
       const db = getDb(paths.databaseFile);
       const row = getClipWithCategoryById(db, id);
       if (!row) {
-        throw new HttpError(404, 'Clipe não encontrado.', 'clip_not_found');
+        throw new HttpError(404, 'Clip not found.', 'clip_not_found');
       }
       res.json({
         id: row.id,
@@ -260,16 +260,16 @@ export function clipsRouter(): Router {
           const file = req.file;
 
           if (!title) {
-            throw new HttpError(400, 'Título obrigatório.', 'missing_title');
+            throw new HttpError(400, 'Title is required.', 'missing_title');
           }
           if (!category) {
-            throw new HttpError(400, 'Categoria obrigatória.', 'missing_category');
+            throw new HttpError(400, 'Category is required.', 'missing_category');
           }
           if (!isValidProcessId(processId)) {
-            throw new HttpError(400, 'process_id inválido.', 'invalid_process_id');
+            throw new HttpError(400, 'Invalid process_id.', 'invalid_process_id');
           }
           if (!isValidYoutubeUrl(youtubeUrl)) {
-            throw new HttpError(400, 'URL do YouTube inválida.', 'invalid_youtube_url');
+            throw new HttpError(400, 'Invalid YouTube URL.', 'invalid_youtube_url');
           }
 
           await updateClipFromUpload(db, paths, id, {
@@ -288,7 +288,7 @@ export function clipsRouter(): Router {
             originalFilename: file?.originalname,
             mimeType: file?.mimetype,
           });
-          res.json({ id, message: 'Clipe actualizado.' });
+          res.json({ id, message: 'Clip updated.' });
         } catch (err) {
           next(err);
         }
@@ -302,7 +302,7 @@ export function clipsRouter(): Router {
       const db = getDb(paths.databaseFile);
       const row = getClipById(db, id);
       if (!row) {
-        throw new HttpError(404, 'Clipe não encontrado.', 'clip_not_found');
+        throw new HttpError(404, 'Clip not found.', 'clip_not_found');
       }
       const body = (req.body ?? {}) as { is_favorite?: unknown };
       const requested =
@@ -322,7 +322,7 @@ export function clipsRouter(): Router {
       const db = getDb(paths.databaseFile);
       const row = getClipById(db, id);
       if (!row) {
-        throw new HttpError(404, 'Clipe não encontrado.', 'clip_not_found');
+        throw new HttpError(404, 'Clip not found.', 'clip_not_found');
       }
       assertClipPathsBelongToApp(paths, row);
       deleteClipFiles(row);
@@ -346,14 +346,14 @@ function field(body: Record<string, unknown>, key: string): string {
 function parseClipId(raw: string | undefined): number {
   const id = Number(raw);
   if (!Number.isInteger(id) || id < 1) {
-    throw new HttpError(400, 'ID de clipe inválido.', 'invalid_id');
+    throw new HttpError(400, 'Invalid clip ID.', 'invalid_id');
   }
   return id;
 }
 
 function compareCategoryName(a: string, b: string): number {
   try {
-    return a.localeCompare(b, 'pt', { sensitivity: 'base' });
+    return a.localeCompare(b, 'en', { sensitivity: 'base' });
   } catch {
     return a.localeCompare(b, undefined, { sensitivity: 'base' });
   }
@@ -363,7 +363,7 @@ function parseVolume(raw: string): number {
   if (!raw) return 75;
   const value = Number(raw);
   if (!Number.isFinite(value)) {
-    throw new HttpError(400, 'Volume inválido (0 a 300).', 'invalid_volume');
+    throw new HttpError(400, 'Invalid volume (0 to 300).', 'invalid_volume');
   }
   return Math.max(0, Math.min(300, Math.round(value)));
 }
