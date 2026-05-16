@@ -1,0 +1,1087 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { api } from '../lib/api';
+import { isValidYoutubeUrl } from '../lib/youtube';
+import { isValidTimeString, secondsToTimeString, timeStringToSeconds } from '../lib/time';
+
+interface Props {
+  mode: 'create' | 'edit';
+}
+
+interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const MAX_CLIP_SEC = 30;
+const MIN_CLIP_SEC = 0.05;
+
+function centeredSquare(nw: number, nh: number): CropRect {
+  const side = Math.min(nw, nh);
+  return {
+    x: Math.floor((nw - side) / 2),
+    y: Math.floor((nh - side) / 2),
+    width: side,
+    height: side,
+  };
+}
+
+function clampCrop(c: CropRect, nw: number, nh: number): CropRect {
+  const side = Math.min(c.width, c.height, nw, nh);
+  const x = Math.max(0, Math.min(c.x, nw - side));
+  const y = Math.max(0, Math.min(c.y, nh - side));
+  return { x, y, width: side, height: side };
+}
+
+function resizeCropAroundCenter(
+  crop: CropRect,
+  side: number,
+  nw: number,
+  nh: number,
+): CropRect {
+  const centerX = crop.x + crop.width / 2;
+  const centerY = crop.y + crop.height / 2;
+  const safeSide = Math.max(1, Math.min(side, nw, nh));
+  return clampCrop(
+    {
+      x: centerX - safeSide / 2,
+      y: centerY - safeSide / 2,
+      width: safeSide,
+      height: safeSide,
+    },
+    nw,
+    nh,
+  );
+}
+
+function parseServerCrop(json: string | null | undefined): CropRect | null {
+  if (!json) return null;
+  try {
+    const o = JSON.parse(json) as Record<string, unknown>;
+    const x = Number(o.x);
+    const y = Number(o.y);
+    const w = Number(o.width);
+    const h = Number(o.height);
+    if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return null;
+    return { x, y, width: w, height: h };
+  } catch {
+    return null;
+  }
+}
+
+function parseTags(raw: string): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const tag of raw.split(/[,\n;]/).map((item) => item.trim()).filter(Boolean)) {
+    const key = tag.toLocaleLowerCase('pt');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(tag);
+  }
+  return result;
+}
+
+function getImageLayout(img: HTMLImageElement) {
+  const cw = img.clientWidth;
+  const ch = img.clientHeight;
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  const ratio = Math.min(cw / nw, ch / nh);
+  const dw = nw * ratio;
+  const dh = nh * ratio;
+  const ox = (cw - dw) / 2;
+  const oy = (ch - dh) / 2;
+  return { ratio, ox, oy, nw, nh, cw, ch };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function getAudioContext(): AudioContext {
+  return new AudioContext();
+}
+
+function WaveformTrimmer({
+  audioUrl,
+  durationSeconds,
+  startTime,
+  endTime,
+  onStartChange,
+  onEndChange,
+}: {
+  audioUrl: string;
+  durationSeconds: number | null;
+  startTime: string;
+  endTime: string;
+  onStartChange: (value: string) => void;
+  onEndChange: (value: string) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dragRef = useRef<'start' | 'end' | null>(null);
+  const [peaks, setPeaks] = useState<number[]>([]);
+  const [canvasWidth, setCanvasWidth] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [waveError, setWaveError] = useState<string | null>(null);
+
+  const duration = durationSeconds ?? 0;
+  const startSec = isValidTimeString(startTime) ? timeStringToSeconds(startTime) : 0;
+  const endSec = isValidTimeString(endTime)
+    ? timeStringToSeconds(endTime)
+    : Math.min(duration, MAX_CLIP_SEC);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const update = () => setCanvasWidth(canvas.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!audioUrl) return;
+    let cancelled = false;
+    setLoading(true);
+    setWaveError(null);
+    setPeaks([]);
+
+    (async () => {
+      try {
+        const res = await fetch(audioUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const audioData = await res.arrayBuffer();
+        const ctx = getAudioContext();
+        const buffer = await ctx.decodeAudioData(audioData.slice(0));
+        await ctx.close();
+        if (cancelled) return;
+
+        const channel = buffer.getChannelData(0);
+        const targetBars = Math.max(120, Math.min(600, Math.round((canvasWidth || 600) / 3)));
+        const blockSize = Math.max(1, Math.floor(channel.length / targetBars));
+        const nextPeaks: number[] = [];
+        for (let i = 0; i < targetBars; i += 1) {
+          let max = 0;
+          const start = i * blockSize;
+          const end = Math.min(channel.length, start + blockSize);
+          for (let j = start; j < end; j += 1) {
+            const v = Math.abs(channel[j] ?? 0);
+            if (v > max) max = v;
+          }
+          nextPeaks.push(max);
+        }
+        const peakMax = Math.max(...nextPeaks, 0.001);
+        setPeaks(nextPeaks.map((p) => p / peakMax));
+      } catch {
+        if (!cancelled) {
+          setWaveError('Não foi possível desenhar o gráfico deste áudio.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [audioUrl, canvasWidth]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const cssWidth = Math.max(1, canvas.clientWidth);
+    const cssHeight = Math.max(1, canvas.clientHeight);
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(cssHeight * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+    ctx.fillStyle = '#0b0f14';
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+    const mid = cssHeight / 2;
+    const barGap = 1;
+    const barWidth = Math.max(1, cssWidth / Math.max(peaks.length, 1) - barGap);
+    const startX = duration > 0 ? (startSec / duration) * cssWidth : 0;
+    const endX = duration > 0 ? (endSec / duration) * cssWidth : 0;
+
+    peaks.forEach((peak, index) => {
+      const x = index * (barWidth + barGap);
+      const h = Math.max(1, peak * (cssHeight - 18));
+      const inSelection = x >= startX && x <= endX;
+      ctx.fillStyle = inSelection ? '#38bdf8' : '#475569';
+      ctx.fillRect(x, mid - h / 2, barWidth, h);
+    });
+
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.16)';
+    ctx.fillRect(startX, 0, Math.max(0, endX - startX), cssHeight);
+
+    for (const x of [startX, endX]) {
+      ctx.fillStyle = '#e5f6ff';
+      ctx.fillRect(x - 2, 0, 4, cssHeight);
+      ctx.beginPath();
+      ctx.arc(x, mid, 7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, [peaks, canvasWidth, duration, startSec, endSec]);
+
+  const xToSeconds = (clientX: number): number => {
+    const canvas = canvasRef.current;
+    if (!canvas || duration <= 0) return 0;
+    const rect = canvas.getBoundingClientRect();
+    return clampNumber(((clientX - rect.left) / rect.width) * duration, 0, duration);
+  };
+
+  const applyStart = (value: number) => {
+    const maxStart = Math.max(0, endSec - MIN_CLIP_SEC);
+    const minStart = Math.max(0, endSec - MAX_CLIP_SEC);
+    onStartChange(secondsToTimeString(clampNumber(value, minStart, maxStart)));
+  };
+
+  const applyEnd = (value: number) => {
+    const minEnd = Math.min(duration, startSec + MIN_CLIP_SEC);
+    const maxEnd = Math.min(duration, startSec + MAX_CLIP_SEC);
+    onEndChange(secondsToTimeString(clampNumber(value, minEnd, maxEnd)));
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (duration <= 0) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const startX = (startSec / duration) * rect.width;
+    const endX = (endSec / duration) * rect.width;
+    dragRef.current = Math.abs(x - startX) <= Math.abs(x - endX) ? 'start' : 'end';
+    canvas.setPointerCapture(e.pointerId);
+    if (dragRef.current === 'start') applyStart(xToSeconds(e.clientX));
+    else applyEnd(xToSeconds(e.clientX));
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!dragRef.current) return;
+    const seconds = xToSeconds(e.clientX);
+    if (dragRef.current === 'start') applyStart(seconds);
+    else applyEnd(seconds);
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (canvas?.hasPointerCapture(e.pointerId)) {
+      canvas.releasePointerCapture(e.pointerId);
+    }
+    dragRef.current = null;
+  };
+
+  if (!audioUrl) return null;
+
+  return (
+    <div className="sm:col-span-2 rounded-md border border-surface/70 bg-bg/40 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-medium">Recorte do áudio</h3>
+        <span className="text-xs text-text-muted">
+          Arraste as alças no gráfico para ajustar início e fim.
+        </span>
+      </div>
+      <canvas
+        ref={canvasRef}
+        className="mt-3 h-32 w-full touch-none rounded-md border border-surface bg-bg"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      />
+      {loading && <p className="mt-2 text-xs text-text-muted">A gerar waveform...</p>}
+      {waveError && <p className="mt-2 text-xs text-red-300">{waveError}</p>}
+      <p className="mt-2 text-xs text-text-muted">
+        Início <span className="font-mono text-text">{startTime}</span> · Fim{' '}
+        <span className="font-mono text-text">{endTime}</span>
+      </p>
+    </div>
+  );
+}
+
+function ThumbnailCropper({
+  src,
+  crop,
+  onCropChange,
+  onNaturalReady,
+}: {
+  src: string;
+  crop: CropRect | null;
+  onCropChange: (c: CropRect) => void;
+  onNaturalReady: (nw: number, nh: number) => void;
+}) {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    startCrop: CropRect;
+  } | null>(null);
+  const [, bump] = useState(0);
+  const relayout = useCallback(() => bump((n) => n + 1), []);
+
+  useEffect(() => {
+    const onResize = () => relayout();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [relayout]);
+
+  useEffect(() => {
+    relayout();
+  }, [crop, relayout]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    const img = imgRef.current;
+    if (!img || img.naturalWidth === 0 || !crop) return;
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startCrop: { ...crop },
+    };
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    const img = imgRef.current;
+    if (!d || !img) return;
+    const L = getImageLayout(img);
+    const dxNat = (e.clientX - d.startX) / L.ratio;
+    const dyNat = (e.clientY - d.startY) / L.ratio;
+    const next = clampCrop(
+      {
+        x: d.startCrop.x + dxNat,
+        y: d.startCrop.y + dyNat,
+        width: d.startCrop.width,
+        height: d.startCrop.height,
+      },
+      L.nw,
+      L.nh,
+    );
+    onCropChange(next);
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).hasPointerCapture?.(e.pointerId)) {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    }
+    dragRef.current = null;
+  };
+
+  const box = useMemo(() => {
+    if (!crop) return null;
+    const img = imgRef.current;
+    if (!img || img.naturalWidth === 0) return null;
+    const L = getImageLayout(img);
+    return {
+      left: L.ox + crop.x * L.ratio,
+      top: L.oy + crop.y * L.ratio,
+      width: crop.width * L.ratio,
+      height: crop.height * L.ratio,
+    };
+  }, [crop, src, relayout]);
+
+  const zoom = useMemo(() => {
+    const img = imgRef.current;
+    if (!img || !crop || img.naturalWidth === 0) return 100;
+    const maxSide = Math.min(img.naturalWidth, img.naturalHeight);
+    return Math.round((maxSide / crop.width) * 100);
+  }, [crop, src, relayout]);
+
+  const onZoomChange = (nextZoom: number) => {
+    const img = imgRef.current;
+    if (!img || !crop || img.naturalWidth === 0) return;
+    const maxSide = Math.min(img.naturalWidth, img.naturalHeight);
+    const clampedZoom = Math.max(100, Math.min(300, nextZoom));
+    const nextSide = maxSide / (clampedZoom / 100);
+    onCropChange(
+      resizeCropAroundCenter(crop, nextSide, img.naturalWidth, img.naturalHeight),
+    );
+  };
+
+  return (
+    <div className="max-w-full rounded-md border border-surface bg-bg-soft p-2">
+      <div className="relative inline-block max-w-full">
+        <img
+          ref={imgRef}
+          src={src}
+          alt="Pré-visualização da thumbnail"
+          className="block max-h-72 w-auto max-w-full select-none"
+          onLoad={() => {
+            const img = imgRef.current;
+            if (img) {
+              onNaturalReady(img.naturalWidth, img.naturalHeight);
+            }
+            relayout();
+          }}
+          draggable={false}
+        />
+        {crop && box && (
+          <div
+            className="pointer-events-auto absolute cursor-grab border-2 border-accent shadow-md active:cursor-grabbing"
+            style={{
+              left: box.left,
+              top: box.top,
+              width: box.width,
+              height: box.height,
+            }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+          />
+        )}
+      </div>
+      {crop && (
+        <div className="mt-3 max-w-md">
+          <label htmlFor="thumbnail-zoom" className="block text-xs font-medium text-text-muted">
+            Zoom da thumbnail: {zoom}%
+          </label>
+          <input
+            id="thumbnail-zoom"
+            type="range"
+            min={100}
+            max={300}
+            value={zoom}
+            onChange={(e) => onZoomChange(Number(e.target.value))}
+            className="mt-1 w-full accent-accent"
+          />
+        </div>
+      )}
+      <p className="mt-2 text-xs text-text-muted">
+        Ajuste o zoom e arraste o quadrado para escolher a região 1:1 da thumbnail.
+      </p>
+    </div>
+  );
+}
+
+export default function ClipFormPage({ mode }: Props) {
+  const navigate = useNavigate();
+  const params = useParams();
+  const clipId = mode === 'edit' ? Number(params.id) : NaN;
+
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [processId, setProcessId] = useState('');
+  const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
+  const [audioUrl, setAudioUrl] = useState('');
+  const [suggestedThumbnailUrl, setSuggestedThumbnailUrl] = useState('');
+  const [startTime, setStartTime] = useState('00:00:00.000');
+  const [endTime, setEndTime] = useState('00:00:30.000');
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [volume, setVolume] = useState(75);
+  const [categorySuggestions, setCategorySuggestions] = useState<string[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+
+  const [thumbFile, setThumbFile] = useState<File | null>(null);
+  const [thumbPreviewSrc, setThumbPreviewSrc] = useState('');
+  const [crop, setCrop] = useState<CropRect | null>(null);
+  const [pendingServerCrop, setPendingServerCrop] = useState<CropRect | null>(null);
+
+  const [loadingClip, setLoadingClip] = useState(mode === 'edit');
+  const [prefetching, setPrefetching] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [loadingSuggestedThumbnail, setLoadingSuggestedThumbnail] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const validUrl = isValidYoutubeUrl(youtubeUrl);
+  const timesOk =
+    isValidTimeString(startTime) &&
+    isValidTimeString(endTime) &&
+    timeStringToSeconds(endTime) > timeStringToSeconds(startTime);
+  const clipLen =
+    timesOk && isValidTimeString(startTime) && isValidTimeString(endTime)
+      ? timeStringToSeconds(endTime) - timeStringToSeconds(startTime)
+      : 0;
+  const clipLenOk = clipLen > 0 && clipLen <= MAX_CLIP_SEC + 0.001;
+  const durationOk =
+    durationSeconds === null ||
+    !timesOk ||
+    (timeStringToSeconds(endTime) <= durationSeconds + 0.05 &&
+      timeStringToSeconds(startTime) >= -0.001);
+
+  const canPrefetch = validUrl && !prefetching;
+  const thumbReady = Boolean(thumbPreviewSrc && crop);
+  const canSaveCreate =
+    mode === 'create' &&
+    Boolean(processId && thumbFile && title.trim() && category.trim() && thumbReady) &&
+    timesOk &&
+    clipLenOk &&
+    durationOk;
+  const canSaveEdit =
+    mode === 'edit' &&
+    Number.isInteger(clipId) &&
+    clipId >= 1 &&
+    Boolean(processId && title.trim() && category.trim() && thumbReady) &&
+    timesOk &&
+    clipLenOk &&
+    durationOk;
+
+  useEffect(() => {
+    if (mode !== 'edit' || !Number.isInteger(clipId) || clipId < 1) return;
+    let cancelled = false;
+    setLoadingClip(true);
+    setError(null);
+    (async () => {
+      try {
+        const c = await api.getClip(clipId);
+        if (cancelled) return;
+        setTitle(c.title);
+        setCategory(c.category.name ?? '');
+        setTags(parseTags(c.tags ?? ''));
+        setIsFavorite(c.is_favorite === 1);
+        setVolume(c.volume);
+        setYoutubeUrl(c.youtube_url);
+        setStartTime(c.start_time);
+        setEndTime(c.end_time);
+        setPendingServerCrop(parseServerCrop(c.thumbnail_crop_meta));
+        setThumbFile(null);
+        setThumbPreviewSrc(c.thumbnail_original_url);
+        setCrop(null);
+        const pf = await api.prefetchYoutube(c.youtube_url);
+        if (cancelled) return;
+        setProcessId(pf.process_id);
+        setDurationSeconds(pf.duration_seconds);
+        setAudioUrl(pf.audio_url);
+        setSuggestedThumbnailUrl(pf.thumbnail_url);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      } finally {
+        if (!cancelled) setLoadingClip(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, clipId]);
+
+  useEffect(() => {
+    return () => {
+      if (thumbPreviewSrc.startsWith('blob:')) {
+        URL.revokeObjectURL(thumbPreviewSrc);
+      }
+    };
+  }, [thumbPreviewSrc]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getCategorySuggestions(category)
+      .then((res) => {
+        if (!cancelled) {
+          setCategorySuggestions(res.categories.map((c) => c.name));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCategorySuggestions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [category]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getTagSuggestions(tagInput)
+      .then((res) => {
+        if (!cancelled) setTagSuggestions(res.tags);
+      })
+      .catch(() => {
+        if (!cancelled) setTagSuggestions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tagInput]);
+
+  const onThumbFile = (file: File | null) => {
+    setThumbFile(file);
+    setPendingServerCrop(null);
+    setCrop(null);
+    setThumbPreviewSrc((prev) => {
+      if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return file ? URL.createObjectURL(file) : '';
+    });
+  };
+
+  const handleNaturalReady = useCallback(
+    (nw: number, nh: number) => {
+      setCrop((prev) => {
+        if (prev) return prev;
+        if (pendingServerCrop) {
+          return clampCrop(pendingServerCrop, nw, nh);
+        }
+        return centeredSquare(nw, nh);
+      });
+      setPendingServerCrop(null);
+    },
+    [pendingServerCrop],
+  );
+
+  const applyPrefetchResult = useCallback((pf: Awaited<ReturnType<typeof api.prefetchYoutube>>) => {
+    setProcessId(pf.process_id);
+    setDurationSeconds(pf.duration_seconds);
+    setAudioUrl(pf.audio_url);
+    setSuggestedThumbnailUrl(pf.thumbnail_url);
+    const endSec = Math.min(MAX_CLIP_SEC, pf.duration_seconds);
+    setStartTime('00:00:00.000');
+    setEndTime(secondsToTimeString(endSec));
+  }, []);
+
+  const handlePrefetch = async () => {
+    if (!validUrl) return;
+    setPrefetching(true);
+    setError(null);
+    try {
+      const pf = await api.prefetchYoutube(youtubeUrl.trim());
+      applyPrefetchResult(pf);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPrefetching(false);
+    }
+  };
+
+  const handleTestPlay = async () => {
+    if (!processId || !timesOk || !clipLenOk || !durationOk) return;
+    setTesting(true);
+    setError(null);
+    try {
+      await api.testPlayStaging({
+        process_id: processId,
+        start_time: startTime.trim(),
+        end_time: endTime.trim(),
+        volume,
+        audio_normalize: true,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleUseYoutubeThumbnail = async () => {
+    if (!suggestedThumbnailUrl) return;
+    setLoadingSuggestedThumbnail(true);
+    setError(null);
+    try {
+      const res = await fetch(suggestedThumbnailUrl);
+      if (!res.ok) {
+        throw new Error(`Não foi possível carregar a thumbnail (${res.status}).`);
+      }
+      const blob = await res.blob();
+      const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+      onThumbFile(new File([blob], `youtube-thumbnail.${ext}`, { type: blob.type || 'image/jpeg' }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingSuggestedThumbnail(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!suggestedThumbnailUrl || thumbFile || thumbPreviewSrc) return;
+    void handleUseYoutubeThumbnail();
+  }, [suggestedThumbnailUrl]);
+
+  const addTag = (raw: string) => {
+    const next = raw.trim();
+    if (!next) return;
+    setTags((current) => {
+      const exists = current.some(
+        (tag) => tag.toLocaleLowerCase('pt') === next.toLocaleLowerCase('pt'),
+      );
+      return exists ? current : [...current, next];
+    });
+    setTagInput('');
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    setTags((current) => current.filter((tag) => tag !== tagToRemove));
+  };
+
+  const buildFormData = (): FormData => {
+    const fd = new FormData();
+    fd.append('youtube_url', youtubeUrl.trim());
+    fd.append('start_time', startTime.trim());
+    fd.append('end_time', endTime.trim());
+    fd.append('title', title.trim());
+    fd.append('category', category.trim());
+    fd.append('tags', tags.join(', '));
+    fd.append('process_id', processId);
+    fd.append('is_favorite', isFavorite ? '1' : '0');
+    fd.append('volume', String(volume));
+    fd.append('audio_normalize', '1');
+    if (crop) {
+      fd.append('thumbnail_crop_meta', JSON.stringify(crop));
+    }
+    if (thumbFile) {
+      fd.append('thumbnail', thumbFile);
+    }
+    return fd;
+  };
+
+  const handleSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (mode === 'create' && !thumbFile) {
+      setError('Seleccione uma imagem para a thumbnail (≤ 1 MB).');
+      return;
+    }
+    if (!processId) {
+      setError('Carregue o áudio do YouTube antes de guardar.');
+      return;
+    }
+    if (!thumbReady) {
+      setError('Aguarde o carregamento da imagem da thumbnail.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const fd = buildFormData();
+      if (mode === 'create') {
+        await api.createClip(fd);
+      } else {
+        await api.updateClip(clipId, fd);
+      }
+      navigate('/');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (mode === 'edit' && (!Number.isInteger(clipId) || clipId < 1)) {
+    return (
+      <p className="text-sm text-red-300">ID de clipe inválido na URL.</p>
+    );
+  }
+
+  if (loadingClip) {
+    return <p className="text-text-muted">A carregar clipe…</p>;
+  }
+
+  return (
+    <section className="space-y-6">
+      {error && (
+        <div
+          role="alert"
+          className="fixed right-4 top-4 z-50 max-w-md rounded-md border border-red-500/50 bg-red-950/95 p-4 text-sm text-red-100 shadow-lg"
+        >
+          <div className="flex gap-3">
+            <p className="flex-1">{error}</p>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="text-red-200 hover:text-white"
+              aria-label="Fechar mensagem de erro"
+            >
+              x
+            </button>
+          </div>
+        </div>
+      )}
+
+      <header>
+        <h2 className="text-xl font-semibold">
+          {mode === 'create' ? 'Novo clipe' : 'Editar clipe'}
+        </h2>
+        <p className="text-sm text-text-muted">
+          Descarregue o áudio, defina o trecho (máx. {MAX_CLIP_SEC}s), ajuste a
+          thumbnail e guarde.
+        </p>
+      </header>
+
+      <form className="space-y-6" onSubmit={handleSubmit}>
+        <div className="rounded-md border border-surface bg-surface-soft p-4">
+          <label htmlFor="youtube-url" className="block text-sm font-medium">
+            URL do YouTube
+          </label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input
+              id="youtube-url"
+              type="url"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              placeholder="https://www.youtube.com/watch?v=..."
+              disabled={mode === 'edit'}
+              className="min-w-[200px] flex-1 rounded-md border border-surface bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent disabled:opacity-60"
+            />
+            <button
+              type="button"
+              disabled={!canPrefetch || mode === 'edit'}
+              onClick={() => void handlePrefetch()}
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {prefetching ? 'A descarregar…' : 'Carregar áudio'}
+            </button>
+            {validUrl && (
+              <a
+                href={youtubeUrl.trim()}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md border border-surface px-4 py-2 text-sm font-medium hover:border-accent"
+              >
+                Abrir YouTube
+              </a>
+            )}
+          </div>
+          {mode === 'edit' && (
+            <p className="mt-2 text-xs text-text-muted">
+              O áudio foi recarregado automaticamente para permitir cortes
+              actualizados.
+            </p>
+          )}
+          {!validUrl && youtubeUrl.length > 0 && (
+            <p className="mt-2 text-sm text-red-300">URL do YouTube inválida.</p>
+          )}
+        </div>
+
+        <div className="grid gap-4 rounded-md border border-surface bg-surface-soft p-4 sm:grid-cols-2">
+          <WaveformTrimmer
+            audioUrl={audioUrl}
+            durationSeconds={durationSeconds}
+            startTime={startTime}
+            endTime={endTime}
+            onStartChange={setStartTime}
+            onEndChange={setEndTime}
+          />
+          <div className="sm:col-span-2">
+            <label htmlFor="volume" className="block text-sm font-medium">
+              Volume: {volume}
+            </label>
+            <div className="mt-1 flex items-center gap-3">
+              <input
+                id="volume"
+                type="range"
+                min={0}
+                max={300}
+                value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                className="w-full accent-accent"
+              />
+              <input
+                type="number"
+                min={0}
+                max={300}
+                value={volume}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (!Number.isFinite(next)) return;
+                  setVolume(Math.max(0, Math.min(300, Math.round(next))));
+                }}
+                className="w-20 rounded-md border border-surface bg-bg px-2 py-1 text-sm outline-none focus:border-accent"
+                aria-label="Volume do clipe"
+              />
+            </div>
+            <p className="mt-1 text-xs text-text-muted">
+              100 é o volume neutro; use até 300 para reforçar clipes mais baixos.
+            </p>
+          </div>
+          <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={!processId || !timesOk || !clipLenOk || !durationOk || testing}
+              onClick={() => void handleTestPlay()}
+              className="rounded-md border border-surface bg-bg px-4 py-2 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {testing ? 'A tocar…' : 'Ouvir trecho'}
+            </button>
+            {timesOk && (
+              <span className="text-xs text-text-muted">
+                Duração do trecho: {clipLen.toFixed(3)}s
+                {!clipLenOk && ` — máximo ${MAX_CLIP_SEC}s`}
+                {!durationOk && ' — fora da duração descarregada'}
+              </span>
+            )}
+            {(!timesOk || !isValidTimeString(startTime) || !isValidTimeString(endTime)) &&
+              (startTime.length > 0 || endTime.length > 0) && (
+                <span className="text-xs text-red-300">
+                  Use o formato HH:MM:SS.mmm (ex.: 00:01:23.456).
+                </span>
+              )}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-surface bg-surface-soft p-4">
+          <label htmlFor="thumb" className="block text-sm font-medium">
+            Thumbnail
+          </label>
+          {suggestedThumbnailUrl && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleUseYoutubeThumbnail()}
+                disabled={loadingSuggestedThumbnail}
+                className="rounded-md border border-surface bg-bg px-3 py-1.5 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loadingSuggestedThumbnail
+                  ? 'A carregar thumbnail…'
+                  : 'Usar thumbnail do YouTube'}
+              </button>
+              <span className="text-xs text-text-muted">
+                Usa a imagem sugerida pelo vídeo e permite ajustar o crop abaixo.
+              </span>
+            </div>
+          )}
+          <input
+            id="thumb"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="mt-2 block w-full text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
+            onChange={(e) => onThumbFile(e.target.files?.[0] ?? null)}
+          />
+          {thumbPreviewSrc && (
+            <div className="mt-4">
+              <ThumbnailCropper
+                src={thumbPreviewSrc}
+                crop={crop}
+                onCropChange={setCrop}
+                onNaturalReady={handleNaturalReady}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3 rounded-md border border-surface bg-surface-soft p-4">
+          <div>
+            <label htmlFor="title" className="block text-sm font-medium">
+              Título
+            </label>
+            <input
+              id="title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              className="mt-1 w-full rounded-md border border-surface bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div>
+            <label htmlFor="category" className="block text-sm font-medium">
+              Categoria
+            </label>
+            <input
+              id="category"
+              list="category-suggestions"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              required
+              placeholder="Nome da categoria"
+              className="mt-1 w-full rounded-md border border-surface bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+            />
+            <datalist id="category-suggestions">
+              {categorySuggestions.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            <p className="mt-1 text-xs text-text-muted">
+              Se a categoria não existir, ela será criada ao guardar.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="tags" className="block text-sm font-medium">
+              Etiquetas
+            </label>
+            <div className="mt-1 flex gap-2">
+              <input
+                id="tags"
+                list="tag-suggestions"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addTag(tagInput);
+                  }
+                }}
+                placeholder="Digite uma etiqueta"
+                className="min-w-0 flex-1 rounded-md border border-surface bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+              <button
+                type="button"
+                onClick={() => addTag(tagInput)}
+                disabled={!tagInput.trim()}
+                className="rounded-md border border-surface px-3 py-2 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Adicionar
+              </button>
+            </div>
+            <datalist id="tag-suggestions">
+              {tagSuggestions.map((tag) => (
+                <option key={tag} value={tag} />
+              ))}
+            </datalist>
+            {tags.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-2 rounded-full border border-surface bg-bg px-3 py-1 text-xs"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeTag(tag)}
+                      className="text-text-muted hover:text-red-200"
+                      aria-label={`Remover etiqueta ${tag}`}
+                    >
+                      x
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-text-muted">
+                Adicione uma ou mais etiquetas reaproveitáveis.
+              </p>
+            )}
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={isFavorite}
+              onChange={(e) => setIsFavorite(e.target.checked)}
+              className="rounded border-surface"
+            />
+            Favorito
+          </label>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="submit"
+            disabled={saving || !(mode === 'create' ? canSaveCreate : canSaveEdit)}
+            className="rounded-md bg-accent px-5 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? 'A guardar…' : 'Guardar clipe'}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="rounded-md border border-surface px-5 py-2 text-sm hover:border-accent"
+          >
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
