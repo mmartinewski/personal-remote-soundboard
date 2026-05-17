@@ -11,6 +11,7 @@ export default function DashboardPage() {
   const [playPulse, setPlayPulse] = useState<{ id: number; token: number } | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [favoriteId, setFavoriteId] = useState<number | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [clipToDelete, setClipToDelete] = useState<ClipDto | null>(null);
 
@@ -64,6 +65,38 @@ export default function DashboardPage() {
     setClipToDelete(clip);
   };
 
+  const handleDownload = async (clip: ClipDto) => {
+    setOpenMenuKey(null);
+    setCardErrors((prev) => ({ ...prev, [clip.id]: '' }));
+    setDownloadingId(clip.id);
+    try {
+      const res = await fetch(api.getClipAudioDownloadUrl(clip.id));
+      if (!res.ok) {
+        throw new Error(`Download failed (${res.status} ${res.statusText})`);
+      }
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.toLowerCase().includes('audio')) {
+        throw new Error('Download did not return an audio file.');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${toDownloadFilename(clip.title)}.mp3`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setCardErrors((prev) => ({
+        ...prev,
+        [clip.id]: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!clipToDelete) return;
     const clip = clipToDelete;
@@ -112,6 +145,15 @@ export default function DashboardPage() {
     return <p className="text-text-muted">Loading...</p>;
   }
 
+  const isSearching = search.trim().length > 0;
+  const sections = isSearching
+    ? [{
+        type: 'search' as const,
+        title: 'Search results',
+        clips: uniqueClips(clips.sections.flatMap((section) => section.clips)),
+      }]
+    : clips.sections;
+
   return (
     <section className="space-y-6">
       <div className="sticky top-0 z-30 rounded-md border border-surface bg-bg/95 p-3 shadow-lg backdrop-blur">
@@ -138,20 +180,26 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {clips.sections.map((section, idx) => (
+      {sections.map((section, idx) => (
         <article
           key={idx}
           className="rounded-md border border-surface bg-surface-soft p-4"
         >
           <h3 className="mb-2 text-base font-semibold">
-            {section.type === 'favorites' ? 'Favorites' : section.category.name}
+            {section.type === 'favorites'
+              ? 'Favorites'
+              : section.type === 'search'
+                ? section.title
+                : section.category.name}
           </h3>
           {section.clips.length === 0 ? (
-            <p className="text-sm text-text-muted">No clips in this section.</p>
+            <p className="text-sm text-text-muted">
+              {isSearching ? 'No clips match this search.' : 'No clips in this section.'}
+            </p>
           ) : (
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
               {section.clips.map((clip) => {
-                const menuKey = `${section.type}-${section.type === 'category' ? section.category.id ?? 'none' : 'favorites'}-${clip.id}`;
+                const menuKey = `${section.type}-${section.type === 'category' ? section.category.id ?? 'none' : section.type}-${clip.id}`;
                 return (
                 <li
                   key={clip.id}
@@ -201,6 +249,17 @@ export default function DashboardPage() {
                           <span aria-hidden="true">✎</span>
                           Edit
                         </Link>
+                        <button
+                          type="button"
+                          onClick={() => void handleDownload(clip)}
+                          disabled={downloadingId === clip.id}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-soft disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <span aria-hidden="true">
+                            <DownloadIcon />
+                          </span>
+                          {downloadingId === clip.id ? 'Downloading...' : 'Download'}
+                        </button>
                         <button
                           type="button"
                           onClick={() => requestDelete(clip)}
@@ -295,5 +354,44 @@ export default function DashboardPage() {
         </div>
       )}
     </section>
+  );
+}
+
+function uniqueClips(clips: ClipDto[]): ClipDto[] {
+  const seen = new Set<number>();
+  const result: ClipDto[] = [];
+  for (const clip of clips) {
+    if (seen.has(clip.id)) continue;
+    seen.add(clip.id);
+    result.push(clip);
+  }
+  return result;
+}
+
+function toDownloadFilename(title: string): string {
+  const safe = title
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 80);
+  return safe || 'clip';
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+    >
+      <path d="M10 3v8" />
+      <path d="M6.5 7.5 10 11l3.5-3.5" />
+      <path d="M4 14.5h12" />
+    </svg>
   );
 }

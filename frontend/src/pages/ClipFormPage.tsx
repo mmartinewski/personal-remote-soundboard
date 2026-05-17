@@ -8,6 +8,8 @@ interface Props {
   mode: 'create' | 'edit';
 }
 
+type AudioSourceType = 'youtube' | 'mp3-url' | 'local-file';
+
 interface CropRect {
   x: number;
   y: number;
@@ -99,6 +101,15 @@ function getImageLayout(img: HTMLImageElement) {
 function clampNumber(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
+}
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function getAudioContext(): AudioContext {
@@ -470,6 +481,10 @@ export default function ClipFormPage({ mode }: Props) {
   const clipId = mode === 'edit' ? Number(params.id) : NaN;
 
   const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [mp3Url, setMp3Url] = useState('');
+  const [localMp3File, setLocalMp3File] = useState<File | null>(null);
+  const [audioSourceType, setAudioSourceType] = useState<AudioSourceType>('youtube');
+  const [sourceReference, setSourceReference] = useState('');
   const [processId, setProcessId] = useState('');
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
   const [audioUrl, setAudioUrl] = useState('');
@@ -497,7 +512,8 @@ export default function ClipFormPage({ mode }: Props) {
   const [loadingSuggestedThumbnail, setLoadingSuggestedThumbnail] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const validUrl = isValidYoutubeUrl(youtubeUrl);
+  const validYoutubeUrl = isValidYoutubeUrl(youtubeUrl);
+  const validMp3Url = isValidHttpUrl(mp3Url);
   const timesOk =
     isValidTimeString(startTime) &&
     isValidTimeString(endTime) &&
@@ -513,7 +529,13 @@ export default function ClipFormPage({ mode }: Props) {
     (timeStringToSeconds(endTime) <= durationSeconds + 0.05 &&
       timeStringToSeconds(startTime) >= -0.001);
 
-  const canPrefetch = validUrl && !prefetching;
+  const canPrefetch =
+    !prefetching &&
+    (audioSourceType === 'youtube'
+      ? validYoutubeUrl
+      : audioSourceType === 'mp3-url'
+        ? validMp3Url
+        : Boolean(localMp3File));
   const thumbReady = Boolean(thumbPreviewSrc && crop);
   const canSaveCreate =
     mode === 'create' &&
@@ -530,6 +552,34 @@ export default function ClipFormPage({ mode }: Props) {
     clipLenOk &&
     durationOk;
 
+  const applyPrefetchResult = useCallback((pf: Awaited<ReturnType<typeof api.prefetchYoutube>>, options?: {
+    sourceReference?: string;
+    updateTitle?: boolean;
+    preserveTimes?: boolean;
+  }) => {
+    setProcessId(pf.process_id);
+    setDurationSeconds(pf.duration_seconds);
+    setAudioUrl(pf.audio_url);
+    setSuggestedThumbnailUrl(pf.thumbnail_url);
+    if (options?.sourceReference) setSourceReference(options.sourceReference);
+    if (options?.updateTitle !== false && pf.title?.trim()) {
+      setTitle((current) => current.trim() ? current : pf.title?.trim() ?? current);
+    }
+    if (!options?.preserveTimes) {
+      const endSec = Math.min(MAX_CLIP_SEC, pf.duration_seconds);
+      setStartTime('00:00:00.000');
+      setEndTime(secondsToTimeString(endSec));
+    }
+  }, []);
+
+  const clearLoadedAudio = () => {
+    setProcessId('');
+    setDurationSeconds(null);
+    setAudioUrl('');
+    setSuggestedThumbnailUrl('');
+    setSourceReference('');
+  };
+
   useEffect(() => {
     if (mode !== 'edit' || !Number.isInteger(clipId) || clipId < 1) return;
     let cancelled = false;
@@ -544,19 +594,27 @@ export default function ClipFormPage({ mode }: Props) {
         setTags(parseTags(c.tags ?? ''));
         setIsFavorite(c.is_favorite === 1);
         setVolume(c.volume);
-        setYoutubeUrl(c.youtube_url);
+        setSourceReference(c.youtube_url);
+        if (isValidYoutubeUrl(c.youtube_url)) {
+          setAudioSourceType('youtube');
+          setYoutubeUrl(c.youtube_url);
+        } else if (isValidHttpUrl(c.youtube_url)) {
+          setAudioSourceType('mp3-url');
+          setMp3Url(c.youtube_url);
+        } else {
+          setAudioSourceType('local-file');
+        }
         setStartTime(c.start_time);
         setEndTime(c.end_time);
         setPendingServerCrop(parseServerCrop(c.thumbnail_crop_meta));
         setThumbFile(null);
         setThumbPreviewSrc(c.thumbnail_original_url);
         setCrop(null);
-        const pf = await api.prefetchYoutube(c.youtube_url);
+        const pf = isValidYoutubeUrl(c.youtube_url)
+          ? await api.prefetchYoutube(c.youtube_url)
+          : await api.stageClipAudio(clipId);
         if (cancelled) return;
-        setProcessId(pf.process_id);
-        setDurationSeconds(pf.duration_seconds);
-        setAudioUrl(pf.audio_url);
-        setSuggestedThumbnailUrl(pf.thumbnail_url);
+        applyPrefetchResult(pf, { updateTitle: false, preserveTimes: true });
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : String(e));
@@ -568,7 +626,7 @@ export default function ClipFormPage({ mode }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [mode, clipId]);
+  }, [mode, clipId, applyPrefetchResult]);
 
   useEffect(() => {
     return () => {
@@ -634,23 +692,23 @@ export default function ClipFormPage({ mode }: Props) {
     [pendingServerCrop],
   );
 
-  const applyPrefetchResult = useCallback((pf: Awaited<ReturnType<typeof api.prefetchYoutube>>) => {
-    setProcessId(pf.process_id);
-    setDurationSeconds(pf.duration_seconds);
-    setAudioUrl(pf.audio_url);
-    setSuggestedThumbnailUrl(pf.thumbnail_url);
-    const endSec = Math.min(MAX_CLIP_SEC, pf.duration_seconds);
-    setStartTime('00:00:00.000');
-    setEndTime(secondsToTimeString(endSec));
-  }, []);
-
-  const handlePrefetch = async () => {
-    if (!validUrl) return;
+  const handleLoadAudio = async () => {
+    if (!canPrefetch) return;
     setPrefetching(true);
     setError(null);
     try {
-      const pf = await api.prefetchYoutube(youtubeUrl.trim());
-      applyPrefetchResult(pf);
+      if (audioSourceType === 'youtube') {
+        const source = youtubeUrl.trim();
+        const pf = await api.prefetchYoutube(source);
+        applyPrefetchResult(pf, { sourceReference: source });
+      } else if (audioSourceType === 'mp3-url') {
+        const source = mp3Url.trim();
+        const pf = await api.prefetchMp3Url(source);
+        applyPrefetchResult(pf, { sourceReference: source });
+      } else if (localMp3File) {
+        const pf = await api.prefetchMp3File(localMp3File);
+        applyPrefetchResult(pf, { sourceReference: `local-file://${localMp3File.name}` });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -719,7 +777,7 @@ export default function ClipFormPage({ mode }: Props) {
 
   const buildFormData = (): FormData => {
     const fd = new FormData();
-    fd.append('youtube_url', youtubeUrl.trim());
+    fd.append('youtube_url', sourceReference.trim());
     fd.append('start_time', startTime.trim());
     fd.append('end_time', endTime.trim());
     fd.append('title', title.trim());
@@ -745,7 +803,7 @@ export default function ClipFormPage({ mode }: Props) {
       return;
     }
     if (!processId) {
-      setError('Load the YouTube audio before saving.');
+      setError('Load the audio before saving.');
       return;
     }
     if (!thumbReady) {
@@ -812,45 +870,103 @@ export default function ClipFormPage({ mode }: Props) {
 
       <form className="space-y-6" onSubmit={handleSubmit}>
         <div className="rounded-md border border-surface bg-surface-soft p-4">
-          <label htmlFor="youtube-url" className="block text-sm font-medium">
-            URL do YouTube
-          </label>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <input
-              id="youtube-url"
-              type="url"
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              placeholder="https://www.youtube.com/watch?v=..."
-              disabled={mode === 'edit'}
-              className="min-w-[200px] flex-1 rounded-md border border-surface bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent disabled:opacity-60"
-            />
+          <h3 className="text-sm font-medium">Audio source</h3>
+          <div className="mt-3 flex flex-wrap gap-2 border-b border-surface pb-3">
+            {([
+              ['youtube', 'YouTube'],
+              ['mp3-url', 'MP3 URL'],
+              ['local-file', 'Local file'],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setAudioSourceType(key)}
+                className={
+                  'rounded-md px-3 py-1.5 text-sm font-medium ' +
+                  (audioSourceType === key
+                    ? 'bg-accent text-white'
+                    : 'border border-surface bg-bg hover:border-accent')
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {audioSourceType === 'youtube' && (
+              <>
+                <input
+                  id="youtube-url"
+                  type="url"
+                  value={youtubeUrl}
+                  onChange={(e) => {
+                    setYoutubeUrl(e.target.value);
+                    clearLoadedAudio();
+                  }}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="min-w-[200px] flex-1 rounded-md border border-surface bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
+                />
+                {validYoutubeUrl && (
+                  <a
+                    href={youtubeUrl.trim()}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md border border-surface px-4 py-2 text-sm font-medium hover:border-accent"
+                  >
+                    Open YouTube
+                  </a>
+                )}
+              </>
+            )}
+
+            {audioSourceType === 'mp3-url' && (
+              <input
+                id="mp3-url"
+                type="url"
+                value={mp3Url}
+                onChange={(e) => {
+                  setMp3Url(e.target.value);
+                  clearLoadedAudio();
+                }}
+                placeholder="https://example.com/audio.mp3"
+                className="min-w-[200px] flex-1 rounded-md border border-surface bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
+              />
+            )}
+
+            {audioSourceType === 'local-file' && (
+              <input
+                id="local-mp3"
+                type="file"
+                accept="audio/mpeg,.mp3"
+                onChange={(e) => {
+                  setLocalMp3File(e.target.files?.[0] ?? null);
+                  clearLoadedAudio();
+                }}
+                className="block min-w-[200px] flex-1 text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
+              />
+            )}
+
             <button
               type="button"
-              disabled={!canPrefetch || mode === 'edit'}
-              onClick={() => void handlePrefetch()}
+              disabled={!canPrefetch}
+              onClick={() => void handleLoadAudio()}
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {prefetching ? 'Downloading...' : 'Load audio'}
+              {prefetching ? 'Loading...' : 'Load audio'}
             </button>
-            {validUrl && (
-              <a
-                href={youtubeUrl.trim()}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-md border border-surface px-4 py-2 text-sm font-medium hover:border-accent"
-              >
-                Open YouTube
-              </a>
-            )}
           </div>
+
+          {audioSourceType === 'youtube' && !validYoutubeUrl && youtubeUrl.length > 0 && (
+            <p className="mt-2 text-sm text-red-300">Invalid YouTube URL.</p>
+          )}
+          {audioSourceType === 'mp3-url' && !validMp3Url && mp3Url.length > 0 && (
+            <p className="mt-2 text-sm text-red-300">Invalid MP3 URL.</p>
+          )}
           {mode === 'edit' && (
             <p className="mt-2 text-xs text-text-muted">
-              The audio was reloaded automatically so the trim can be updated.
+              The saved audio is reloaded automatically so the trim can be updated.
             </p>
-          )}
-          {!validUrl && youtubeUrl.length > 0 && (
-            <p className="mt-2 text-sm text-red-300">Invalid YouTube URL.</p>
           )}
         </div>
 

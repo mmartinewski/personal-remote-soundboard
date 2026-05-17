@@ -35,6 +35,7 @@ export interface PrefetchResponse {
   audio_url: string;
   thumbnail_url: string;
   source_format: string;
+  title?: string;
 }
 
 export interface ClipDetail {
@@ -105,6 +106,22 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ youtube_url }),
     }),
+  prefetchMp3Url: (audio_url: string) =>
+    request<PrefetchResponse>('/api/clips/prefetch/mp3-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio_url }),
+    }),
+  prefetchMp3File: (audio: File) => {
+    const form = new FormData();
+    form.append('audio', audio);
+    return request<PrefetchResponse>('/api/clips/prefetch/mp3-file', {
+      method: 'POST',
+      body: form,
+    });
+  },
+  stageClipAudio: (id: number) =>
+    request<PrefetchResponse>(`/api/clips/${id}/stage-audio`, { method: 'POST' }),
   testPlayStaging: (body: {
     process_id: string;
     start_time: string;
@@ -130,6 +147,7 @@ export const api = {
     }),
   playClip: (id: number) =>
     request<{ status: string }>(`/api/clips/${id}/play`, { method: 'POST' }),
+  getClipAudioDownloadUrl: (id: number) => `/api/clips/${id}/audio`,
   setFavorite: (id: number, is_favorite: boolean) =>
     request<{ id: number; is_favorite: number }>(`/api/clips/${id}/favorite`, {
       method: 'PATCH',

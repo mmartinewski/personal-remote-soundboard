@@ -57,6 +57,21 @@ export interface DownloadAudioOptions {
   outputBase: string;
 }
 
+export async function getYoutubeTitle(
+  ytDlpExe: string,
+  url: string,
+): Promise<string> {
+  const { stdout } = await execFileAsync(ytDlpExe, [
+    '--no-playlist',
+    '--no-warnings',
+    '--skip-download',
+    '--print',
+    'title',
+    url,
+  ]);
+  return stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? '';
+}
+
 /**
  * Downloads only the best available audio stream.
  * Returns the generated file path, with the extension chosen by yt-dlp.

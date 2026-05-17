@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { clipMultipart } from '../middleware/multipart.js';
 import { resolvePaths } from '../config/paths.js';
@@ -19,6 +20,7 @@ import {
 } from '../services/clipMutations.js';
 import { isValidProcessId } from '../services/stagingRegistry.js';
 import { isValidYoutubeUrl } from '../services/youtube.js';
+import { stageExistingAudio } from './prefetch.js';
 
 interface SectionFavorites {
   type: 'favorites';
@@ -178,8 +180,8 @@ export function clipsRouter(): Router {
           if (!isValidProcessId(processId)) {
             throw new HttpError(400, 'Invalid process_id.', 'invalid_process_id');
           }
-          if (!isValidYoutubeUrl(youtubeUrl)) {
-            throw new HttpError(400, 'Invalid YouTube URL.', 'invalid_youtube_url');
+          if (!isValidSourceUrl(youtubeUrl)) {
+            throw new HttpError(400, 'Invalid source URL.', 'invalid_source_url');
           }
 
           const id = await createClipFromUpload(db, paths, {
@@ -205,6 +207,25 @@ export function clipsRouter(): Router {
       })();
     },
   );
+
+  router.get('/:id/audio', (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const id = parseClipId(req.params.id);
+      const db = getDb(paths.databaseFile);
+      const row = getClipById(db, id);
+      if (!row) {
+        throw new HttpError(404, 'Clip not found.', 'clip_not_found');
+      }
+      assertClipPathsBelongToApp(paths, row);
+      if (!existsSync(row.audio_path)) {
+        throw new HttpError(404, 'Audio file not found.', 'audio_missing');
+      }
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.download(row.audio_path, `${toDownloadFilename(row.title)}.mp3`);
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.get('/:id', (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -268,8 +289,8 @@ export function clipsRouter(): Router {
           if (!isValidProcessId(processId)) {
             throw new HttpError(400, 'Invalid process_id.', 'invalid_process_id');
           }
-          if (!isValidYoutubeUrl(youtubeUrl)) {
-            throw new HttpError(400, 'Invalid YouTube URL.', 'invalid_youtube_url');
+          if (!isValidSourceUrl(youtubeUrl)) {
+            throw new HttpError(400, 'Invalid source URL.', 'invalid_source_url');
           }
 
           await updateClipFromUpload(db, paths, id, {
@@ -314,6 +335,24 @@ export function clipsRouter(): Router {
     } catch (err) {
       next(err);
     }
+  });
+
+  router.post('/:id/stage-audio', (req: Request, res: Response, next: NextFunction) => {
+    void (async () => {
+      try {
+        const id = parseClipId(req.params.id);
+        const db = getDb(paths.databaseFile);
+        const row = getClipById(db, id);
+        if (!row) {
+          throw new HttpError(404, 'Clip not found.', 'clip_not_found');
+        }
+        assertClipPathsBelongToApp(paths, row);
+        const response = await stageExistingAudio(paths, row.audio_path, row.title);
+        res.json(response);
+      } catch (err) {
+        next(err);
+      }
+    })();
   });
 
   router.delete('/:id', (req: Request, res: Response, next: NextFunction) => {
@@ -384,4 +423,26 @@ function parseTags(raw: string): string[] {
     .split(/[,\n;]/)
     .map((tag) => tag.trim())
     .filter(Boolean);
+}
+
+function isValidSourceUrl(value: string): boolean {
+  if (!value) return false;
+  if (isValidYoutubeUrl(value)) return true;
+  if (value.startsWith('local-file://')) return true;
+  if (value.startsWith('existing-clip://')) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function toDownloadFilename(title: string): string {
+  const safe = title
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 80);
+  return safe || 'clip';
 }
