@@ -479,6 +479,7 @@ export default function ClipFormPage({ mode }: Props) {
   const navigate = useNavigate();
   const params = useParams();
   const clipId = mode === 'edit' ? Number(params.id) : NaN;
+  const previewAudioRef = useRef<HTMLAudioElement>(null);
 
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [mp3Url, setMp3Url] = useState('');
@@ -508,7 +509,7 @@ export default function ClipFormPage({ mode }: Props) {
   const [loadingClip, setLoadingClip] = useState(mode === 'edit');
   const [prefetching, setPrefetching] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [loadingSuggestedThumbnail, setLoadingSuggestedThumbnail] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -580,6 +581,16 @@ export default function ClipFormPage({ mode }: Props) {
     setSourceReference('');
   };
 
+  const stopClientPreview = useCallback(() => {
+    const audio = previewAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    setPreviewing(false);
+  }, []);
+
   useEffect(() => {
     if (mode !== 'edit' || !Number.isInteger(clipId) || clipId < 1) return;
     let cancelled = false;
@@ -635,6 +646,22 @@ export default function ClipFormPage({ mode }: Props) {
       }
     };
   }, [thumbPreviewSrc]);
+
+  useEffect(() => stopClientPreview, [audioUrl, stopClientPreview]);
+
+  useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+
+    const resetPreview = () => setPreviewing(false);
+    audio.addEventListener('ended', resetPreview);
+    audio.addEventListener('error', resetPreview);
+    return () => {
+      audio.removeEventListener('ended', resetPreview);
+      audio.removeEventListener('error', resetPreview);
+      audio.pause();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -716,22 +743,27 @@ export default function ClipFormPage({ mode }: Props) {
     }
   };
 
-  const handleTestPlay = async () => {
-    if (!processId || !timesOk || !clipLenOk || !durationOk) return;
-    setTesting(true);
+  const handleClientPreview = async () => {
+    if (!audioUrl || !processId || !timesOk || !clipLenOk || !durationOk) return;
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+
     setError(null);
     try {
-      await api.testPlayStaging({
+      audio.pause();
+      audio.volume = clampNumber(volume / 100, 0, 1);
+      audio.src = api.getStagingPreviewUrl({
         process_id: processId,
         start_time: startTime.trim(),
         end_time: endTime.trim(),
-        volume,
         audio_normalize: true,
       });
+      audio.load();
+      setPreviewing(true);
+      await audio.play();
     } catch (e) {
+      setPreviewing(false);
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setTesting(false);
     }
   };
 
@@ -971,6 +1003,7 @@ export default function ClipFormPage({ mode }: Props) {
         </div>
 
         <div className="grid gap-4 rounded-md border border-surface bg-surface-soft p-4 sm:grid-cols-2">
+          <audio ref={previewAudioRef} preload="none" />
           <WaveformTrimmer
             audioUrl={audioUrl}
             durationSeconds={durationSeconds}
@@ -1014,11 +1047,11 @@ export default function ClipFormPage({ mode }: Props) {
           <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              disabled={!processId || !timesOk || !clipLenOk || !durationOk || testing}
-              onClick={() => void handleTestPlay()}
+              disabled={!processId || !timesOk || !clipLenOk || !durationOk}
+              onClick={() => void handleClientPreview()}
               className="rounded-md border border-surface bg-bg px-4 py-2 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {testing ? 'Playing...' : 'Preview segment'}
+              Preview
             </button>
             {timesOk && (
               <span className="text-xs text-text-muted">

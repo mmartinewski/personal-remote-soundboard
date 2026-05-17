@@ -1,16 +1,21 @@
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import type { AppPaths } from '../config/paths.js';
+import { assertBinaries } from '../lib/binaries.js';
 import { HttpError } from '../middleware/errorHandler.js';
+import { cutToMp3 } from '../services/ffmpeg.js';
 import {
   guessMimeFromPath,
   isValidProcessId,
   readStagingMeta,
   stagingMetaExpired,
 } from '../services/stagingRegistry.js';
+import { isValidTimeString, timeStringToSeconds } from '../services/timeFormat.js';
 import { getYoutubeThumbnailCandidates } from '../services/youtube.js';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_CLIP_SECONDS = 30;
 
 export function stagingRouter(paths: AppPaths): Router {
   const router = Router();
@@ -35,6 +40,75 @@ export function stagingRouter(paths: AppPaths): Router {
         res.setHeader('Cache-Control', 'private, max-age=3600');
         res.send(image.buffer);
       } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
+  router.get('/:processId/preview', (req: Request, res: Response, next: NextFunction) => {
+    void (async () => {
+      let previewFile = '';
+      try {
+        assertBinaries(paths);
+        const processId = String(req.params.processId ?? '');
+        if (!isValidProcessId(processId)) {
+          throw new HttpError(400, 'Invalid process_id.', 'invalid_process_id');
+        }
+
+        const startTime = typeof req.query.start_time === 'string' ? req.query.start_time.trim() : '';
+        const endTime = typeof req.query.end_time === 'string' ? req.query.end_time.trim() : '';
+        if (!isValidTimeString(startTime) || !isValidTimeString(endTime)) {
+          throw new HttpError(400, 'Invalid times (use HH:MM:SS.mmm).', 'invalid_time');
+        }
+
+        const meta = readStagingMeta(paths.mediaTemp, processId);
+        if (!meta) {
+          throw new HttpError(404, 'Staging not found or expired.', 'staging_not_found');
+        }
+        if (stagingMetaExpired(meta, SEVEN_DAYS_MS)) {
+          throw new HttpError(410, 'Staging expired.', 'staging_expired');
+        }
+        if (!existsSync(meta.audioPath)) {
+          throw new HttpError(404, 'Staging audio file not found.', 'staging_file_missing');
+        }
+
+        const startSec = timeStringToSeconds(startTime);
+        const endSec = timeStringToSeconds(endTime);
+        if (endSec <= startSec) {
+          throw new HttpError(400, 'end_time must be greater than start_time.', 'invalid_range');
+        }
+        if (endSec - startSec > MAX_CLIP_SECONDS + 0.001) {
+          throw new HttpError(400, 'The segment cannot exceed 30 seconds.', 'clip_too_long');
+        }
+        if (startSec < -0.001 || endSec > meta.durationSeconds + 0.05) {
+          throw new HttpError(
+            400,
+            'Segment is outside the downloaded audio duration.',
+            'out_of_bounds',
+          );
+        }
+
+        const normalizeAudio = req.query.audio_normalize === '1' || req.query.audio_normalize === 'true';
+        previewFile = join(paths.mediaTemp, `${processId}.client-preview-${Date.now()}.mp3`);
+        await cutToMp3({
+          ffmpegExe: paths.ffmpegExe,
+          inputFile: meta.audioPath,
+          outputFile: previewFile,
+          startSeconds: startSec,
+          durationSeconds: endSec - startSec,
+          sourceDurationSeconds: meta.durationSeconds,
+          normalizeAudio,
+        });
+
+        const stat = statSync(previewFile);
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Content-Length', String(stat.size));
+        res.setHeader('Cache-Control', 'no-store');
+        res.on('finish', () => cleanupQuiet(previewFile));
+        res.on('close', () => cleanupQuiet(previewFile));
+        createReadStream(previewFile).pipe(res);
+      } catch (err) {
+        if (previewFile) cleanupQuiet(previewFile);
         next(err);
       }
     })();
@@ -89,6 +163,14 @@ export function stagingRouter(paths: AppPaths): Router {
   });
 
   return router;
+}
+
+function cleanupQuiet(filePath: string): void {
+  try {
+    unlinkSync(filePath);
+  } catch {
+    /* noop */
+  }
 }
 
 async function fetchYoutubeThumbnail(youtubeUrl: string): Promise<{

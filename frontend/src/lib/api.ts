@@ -122,6 +122,19 @@ export const api = {
   },
   stageClipAudio: (id: number) =>
     request<PrefetchResponse>(`/api/clips/${id}/stage-audio`, { method: 'POST' }),
+  getStagingPreviewUrl: (body: {
+    process_id: string;
+    start_time: string;
+    end_time: string;
+    audio_normalize?: boolean;
+  }) => {
+    const params = new URLSearchParams({
+      start_time: body.start_time,
+      end_time: body.end_time,
+      audio_normalize: body.audio_normalize === false ? '0' : '1',
+    });
+    return `/api/staging/${encodeURIComponent(body.process_id)}/preview?${params.toString()}`;
+  },
   testPlayStaging: (body: {
     process_id: string;
     start_time: string;
