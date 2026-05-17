@@ -19,6 +19,9 @@ interface CropRect {
 
 const MAX_CLIP_SEC = 30;
 const MIN_CLIP_SEC = 0.05;
+const MAX_THUMBNAIL_BYTES = 1024 * 1024;
+const VALID_THUMBNAIL_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const VALID_THUMBNAIL_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 
 function centeredSquare(nw: number, nh: number): CropRect {
   const side = Math.min(nw, nh);
@@ -110,6 +113,51 @@ function isValidHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function validateThumbnailFile(file: File): string | null {
+  const type = file.type.toLowerCase();
+  const name = file.name.toLowerCase();
+  const hasValidType = VALID_THUMBNAIL_TYPES.has(type);
+  const hasValidExtension = Array.from(VALID_THUMBNAIL_EXTENSIONS).some((ext) =>
+    name.endsWith(ext),
+  );
+  if (!hasValidType && !hasValidExtension) {
+    return 'Only JPEG, PNG, and WebP images are supported.';
+  }
+  if (file.size > MAX_THUMBNAIL_BYTES) {
+    return 'Image is too large (max 1 MB).';
+  }
+  return null;
+}
+
+function imageExtensionFromMime(type: string): 'jpg' | 'png' | 'webp' {
+  if (type === 'image/png') return 'png';
+  if (type === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+function firstDroppedImageFile(dataTransfer: DataTransfer): File | null {
+  return Array.from(dataTransfer.files).find((file) => file.type.startsWith('image/')) ?? null;
+}
+
+function droppedImageUrl(dataTransfer: DataTransfer): string {
+  const html = dataTransfer.getData('text/html');
+  if (html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const imgSrc = doc.querySelector('img')?.getAttribute('src')?.trim();
+    if (imgSrc) return imgSrc;
+  }
+
+  const uriList = dataTransfer
+    .getData('text/uri-list')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith('#'));
+  if (uriList) return uriList;
+
+  const plain = dataTransfer.getData('text/plain').trim();
+  return isValidHttpUrl(plain) ? plain : '';
 }
 
 function getAudioContext(): AudioContext {
@@ -412,7 +460,7 @@ function ThumbnailCropper({
     const img = imgRef.current;
     if (!img || !crop || img.naturalWidth === 0) return;
     const maxSide = Math.min(img.naturalWidth, img.naturalHeight);
-    const clampedZoom = Math.max(100, Math.min(300, nextZoom));
+    const clampedZoom = Math.max(100, Math.min(500, nextZoom));
     const nextSide = maxSide / (clampedZoom / 100);
     onCropChange(
       resizeCropAroundCenter(crop, nextSide, img.naturalWidth, img.naturalHeight),
@@ -461,7 +509,7 @@ function ThumbnailCropper({
             id="thumbnail-zoom"
             type="range"
             min={100}
-            max={300}
+            max={500}
             value={zoom}
             onChange={(e) => onZoomChange(Number(e.target.value))}
             className="mt-1 w-full accent-accent"
@@ -510,6 +558,8 @@ export default function ClipFormPage({ mode }: Props) {
   const [prefetching, setPrefetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [thumbnailDragActive, setThumbnailDragActive] = useState(false);
+  const [loadingDroppedThumbnail, setLoadingDroppedThumbnail] = useState(false);
   const [loadingSuggestedThumbnail, setLoadingSuggestedThumbnail] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -696,6 +746,13 @@ export default function ClipFormPage({ mode }: Props) {
   }, [tagInput]);
 
   const onThumbFile = (file: File | null) => {
+    if (file) {
+      const validationError = validateThumbnailFile(file);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+    }
     setThumbFile(file);
     setPendingServerCrop(null);
     setCrop(null);
@@ -703,6 +760,40 @@ export default function ClipFormPage({ mode }: Props) {
       if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
       return file ? URL.createObjectURL(file) : '';
     });
+  };
+
+  const handleThumbnailDrop = async (ev: React.DragEvent<HTMLDivElement>) => {
+    ev.preventDefault();
+    setThumbnailDragActive(false);
+    setError(null);
+
+    const droppedFile = firstDroppedImageFile(ev.dataTransfer);
+    if (droppedFile) {
+      onThumbFile(droppedFile);
+      return;
+    }
+
+    const imageUrl = droppedImageUrl(ev.dataTransfer);
+    if (!imageUrl) {
+      setError('Drop a JPEG, PNG, or WebP image file or image from the browser.');
+      return;
+    }
+
+    setLoadingDroppedThumbnail(true);
+    try {
+      const blob = await api.fetchThumbnailFromUrl(imageUrl);
+      const type = blob.type || 'image/jpeg';
+      const file = new File(
+        [blob],
+        `dropped-thumbnail.${imageExtensionFromMime(type)}`,
+        { type },
+      );
+      onThumbFile(file);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingDroppedThumbnail(false);
+    }
   };
 
   const handleNaturalReady = useCallback(
@@ -1069,10 +1160,32 @@ export default function ClipFormPage({ mode }: Props) {
           </div>
         </div>
 
-        <div className="rounded-md border border-surface bg-surface-soft p-4">
+        <div
+          className={
+            'rounded-md border p-4 transition ' +
+            (thumbnailDragActive
+              ? 'border-accent bg-accent/10'
+              : 'border-surface bg-surface-soft')
+          }
+          onDragEnter={(e) => {
+            e.preventDefault();
+            setThumbnailDragActive(true);
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            setThumbnailDragActive(true);
+          }}
+          onDragLeave={() => setThumbnailDragActive(false)}
+          onDrop={(e) => void handleThumbnailDrop(e)}
+        >
           <label htmlFor="thumb" className="block text-sm font-medium">
             Thumbnail
           </label>
+          <p className="mt-1 text-xs text-text-muted">
+            Select, paste by drag-and-drop, or drag an image from the browser. Supported formats:
+            JPEG, PNG, and WebP up to 1 MB.
+          </p>
           {suggestedThumbnailUrl && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
@@ -1097,6 +1210,19 @@ export default function ClipFormPage({ mode }: Props) {
             className="mt-2 block w-full text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
             onChange={(e) => onThumbFile(e.target.files?.[0] ?? null)}
           />
+          {loadingDroppedThumbnail && (
+            <p className="mt-2 text-xs text-text-muted">Loading dropped image...</p>
+          )}
+          <p
+            className={
+              'mt-2 rounded-md border border-dashed p-3 text-center text-sm transition ' +
+              (thumbnailDragActive
+                ? 'border-accent bg-bg/40 text-accent opacity-100'
+                : 'border-transparent text-text-muted opacity-60')
+            }
+          >
+            Drop the image here to use it as the thumbnail.
+          </p>
           {thumbPreviewSrc && (
             <div className="mt-4">
               <ThumbnailCropper

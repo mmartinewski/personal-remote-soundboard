@@ -20,7 +20,8 @@
     "desktop:dev": "npm run build && electron .",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
     "pack:win": "npm run prepare:desktop-runtime && npm run build && electron-builder --win dir",
-    "dist:win": "npm run prepare:desktop-runtime && npm run build && electron-builder --win nsis"
+    "dist:win": "npm run prepare:desktop-runtime && npm run build && electron-builder --win nsis",
+    "installer:win": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",

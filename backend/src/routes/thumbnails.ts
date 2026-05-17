@@ -6,6 +6,9 @@ import { getDb } from '../db/connection.js';
 import { getClipById } from '../db/repositories/clips.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
+const MAX_THUMBNAIL_BYTES = 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
 export function thumbnailsRouter(paths: AppPaths): Router {
   const router = Router();
 
@@ -44,8 +47,69 @@ export function thumbnailsRouter(paths: AppPaths): Router {
       }
     };
 
+  router.post('/fetch', (req: Request, res: Response, next: NextFunction) => {
+    void (async () => {
+      try {
+        const body = (req.body ?? {}) as { image_url?: unknown };
+        const imageUrl = typeof body.image_url === 'string' ? body.image_url.trim() : '';
+        if (!isValidHttpUrl(imageUrl)) {
+          throw new HttpError(400, 'Invalid image URL.', 'invalid_image_url');
+        }
+
+        const response = await fetch(imageUrl);
+        if (!response.ok) {
+          throw new HttpError(
+            502,
+            `Could not load the image (${response.status}).`,
+            'image_fetch_failed',
+          );
+        }
+
+        const contentType = normalizeImageType(response.headers.get('content-type') ?? '');
+        if (!contentType) {
+          throw new HttpError(
+            400,
+            'Only JPEG, PNG, and WebP images are supported.',
+            'invalid_image_type',
+          );
+        }
+
+        const contentLength = Number(response.headers.get('content-length') ?? '0');
+        if (contentLength > MAX_THUMBNAIL_BYTES) {
+          throw new HttpError(400, 'Image is too large (max 1 MB).', 'image_too_large');
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > MAX_THUMBNAIL_BYTES) {
+          throw new HttpError(400, 'Image is too large (max 1 MB).', 'image_too_large');
+        }
+
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Length', String(buffer.length));
+        res.setHeader('Cache-Control', 'no-store');
+        res.send(buffer);
+      } catch (err) {
+        next(err);
+      }
+    })();
+  });
+
   router.get('/:id/original', sendThumb('original'));
   router.get('/:id/cropped', sendThumb('cropped'));
 
   return router;
+}
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function normalizeImageType(value: string): string {
+  const contentType = value.split(';')[0]?.trim().toLowerCase() ?? '';
+  return ALLOWED_IMAGE_TYPES.has(contentType) ? contentType : '';
 }

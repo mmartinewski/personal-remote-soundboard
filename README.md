@@ -50,16 +50,17 @@ After the build, Express serves the static frontend from `frontend/dist/`.
 
 ## Windows Installer
 
-Install dependencies and make sure the Windows runtime binaries are available:
+To install dependencies, fetch the binaries, and generate a fresh installer in one command:
+
+```bash
+npm run installer:win
+```
+
+Or run the steps manually:
 
 ```bash
 npm install
 npm run fetch:bin
-```
-
-Build the NSIS installer:
-
-```bash
 npm run dist:win
 ```
 

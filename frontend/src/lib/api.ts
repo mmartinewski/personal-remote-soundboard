@@ -77,6 +77,23 @@ async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function requestBlob(input: RequestInfo, init?: RequestInit): Promise<Blob> {
+  const res = await fetch(input, init);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = (await res.json()) as { message?: string };
+      detail = body.message ?? '';
+    } catch {
+      /* noop */
+    }
+    throw new Error(
+      detail || `Request failed (${res.status} ${res.statusText})`,
+    );
+  }
+  return await res.blob();
+}
+
 export const api = {
   health: () => request<HealthResponse>('/api/health'),
   getClips: (search?: string) =>
@@ -91,6 +108,12 @@ export const api = {
     request<{ tags: string[] }>(
       `/api/clips/suggestions/tags?q=${encodeURIComponent(q)}`,
     ),
+  fetchThumbnailFromUrl: (image_url: string) =>
+    requestBlob('/api/thumbnails/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_url }),
+    }),
   getSettings: () => request<SettingsResponse>('/api/settings'),
   setVolume: (playback_volume: number) =>
     request<SettingsResponse>('/api/settings', {
