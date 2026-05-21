@@ -17,6 +17,7 @@ import {
   createClipFromUpload,
   deleteClipFiles,
   updateClipFromUpload,
+  updateClipMetadata,
 } from '../services/clipMutations.js';
 import { isValidProcessId } from '../services/stagingRegistry.js';
 import { isValidYoutubeUrl } from '../services/youtube.js';
@@ -316,6 +317,25 @@ export function clipsRouter(): Router {
       })();
     },
   );
+
+  router.patch('/:id/metadata', (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const id = parseClipId(req.params.id);
+      const db = getDb(paths.databaseFile);
+      const body = (req.body ?? {}) as {
+        title?: unknown;
+        category?: unknown;
+        tags?: unknown;
+      };
+      const title = typeof body.title === 'string' ? body.title.trim() : '';
+      const category = typeof body.category === 'string' ? body.category.trim() : '';
+      const tags = typeof body.tags === 'string' ? body.tags : '';
+      updateClipMetadata(db, id, { title, categoryName: category, tags });
+      res.json({ id, message: 'Metadata updated.' });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.patch('/:id/favorite', (req: Request, res: Response, next: NextFunction) => {
     try {

@@ -204,6 +204,44 @@ function clampVolume(value: number): number {
   return Math.max(0, Math.min(300, Math.round(value)));
 }
 
+export interface UpdateClipMetadataInput {
+  title: string;
+  categoryName: string;
+  tags: string;
+}
+
+export function updateClipMetadata(
+  db: BetterDatabase,
+  clipId: number,
+  input: UpdateClipMetadataInput,
+): void {
+  const row = db.prepare('SELECT id FROM clips WHERE id = ?').get(clipId) as
+    | { id: number }
+    | undefined;
+  if (!row) {
+    throw new HttpError(404, 'Clip not found.', 'clip_not_found');
+  }
+
+  const title = input.title.trim();
+  if (!title) {
+    throw new HttpError(400, 'Title is required.', 'missing_title');
+  }
+
+  const categoryName = input.categoryName.trim();
+  if (!categoryName) {
+    throw new HttpError(400, 'Category is required.', 'missing_category');
+  }
+
+  const cat = findOrCreateCategory(db, categoryName);
+  const tagsNorm = input.tags.trim().length ? input.tags.trim() : null;
+  db.prepare('UPDATE clips SET title = ?, category_id = ?, tags = ? WHERE id = ?').run(
+    title,
+    cat.id,
+    tagsNorm,
+    clipId,
+  );
+}
+
 export interface UpdateClipInput {
   title: string;
   youtubeUrl: string;

@@ -192,6 +192,21 @@ export const api = {
   playClip: (id: number) =>
     request<{ status: string }>(`/api/clips/${id}/play`, { method: 'POST' }),
   getClipAudioDownloadUrl: (id: number) => `/api/clips/${id}/audio`,
+  renameCategory: (id: number, name: string) =>
+    request<{ id: number; name: string; message: string }>(`/api/categories/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+  updateClipMetadata: (
+    id: number,
+    body: { title: string; category: string; tags: string },
+  ) =>
+    request<{ id: number; message: string }>(`/api/clips/${id}/metadata`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
   setFavorite: (id: number, is_favorite: boolean) =>
     request<{ id: number; is_favorite: number }>(`/api/clips/${id}/favorite`, {
       method: 'PATCH',

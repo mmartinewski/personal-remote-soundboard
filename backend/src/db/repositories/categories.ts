@@ -12,6 +12,43 @@ export function listCategories(db: BetterDatabase): CategoryRow[] {
     .all() as CategoryRow[];
 }
 
+export function getCategoryById(
+  db: BetterDatabase,
+  id: number,
+): CategoryRow | undefined {
+  return db
+    .prepare('SELECT id, name, created_at FROM categories WHERE id = ?')
+    .get(id) as CategoryRow | undefined;
+}
+
+export function renameCategory(
+  db: BetterDatabase,
+  id: number,
+  name: string,
+): CategoryRow {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    throw new Error('Category name cannot be empty.');
+  }
+
+  const current = getCategoryById(db, id);
+  if (!current) {
+    throw new Error('Category not found.');
+  }
+
+  if (current.name === trimmed) return current;
+
+  const duplicate = db
+    .prepare('SELECT id FROM categories WHERE name = ? AND id <> ?')
+    .get(trimmed, id) as { id: number } | undefined;
+  if (duplicate) {
+    throw new Error('Category name already exists.');
+  }
+
+  db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(trimmed, id);
+  return getCategoryById(db, id)!;
+}
+
 export function findOrCreateCategory(
   db: BetterDatabase,
   name: string,
