@@ -102,9 +102,30 @@ Optionally copy `config/config.example.json` to `config/config.json` to adjust t
 
 ```json
 {
-  "port": 3847
+  "port": 3847,
+  "youtube_cookies_from_browser": "chrome"
 }
 ```
+
+Supported values for `youtube_cookies_from_browser`: `chrome`, `edge`, `firefox`, and other browsers supported by yt-dlp.
+
+### YouTube sign-in (recommended)
+
+YouTube often blocks anonymous downloads. The desktop app can save a signed-in session for `yt-dlp`:
+
+1. Right-click the tray icon.
+2. Click **Sign in to YouTube**.
+3. Sign in with your Google account in the window that opens.
+4. Click **Save session**.
+5. Try loading the YouTube audio again in the clip form.
+
+The saved session is stored in `%APPDATA%\\LocalSoundboardServer\\youtube.cookies.txt`.
+
+From the web UI you can also open `soundboard://youtube-login` if the desktop app is running.
+
+### Manual cookie fallback
+
+If needed, copy `config/config.example.json` to `config/config.json` and set `youtube_cookies_from_browser` to a browser where you are signed in to YouTube, or point `youtube_cookies_file` to an exported Netscape cookies file.
 
 `config/config.json` is ignored by Git.
 

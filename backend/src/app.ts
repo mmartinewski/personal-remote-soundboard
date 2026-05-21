@@ -8,6 +8,7 @@ import { stagingRouter } from './routes/staging.js';
 import { playRouter } from './routes/play.js';
 import { thumbnailsRouter } from './routes/thumbnails.js';
 import { settingsRouter } from './routes/settings.js';
+import { youtubeRouter } from './routes/youtube.js';
 import { logger } from './lib/logger.js';
 import type { AppPaths } from './config/paths.js';
 
@@ -24,6 +25,7 @@ export function createApp(paths: AppPaths): Express {
   app.use('/api/staging', stagingRouter(paths));
   app.use('/api/thumbnails', thumbnailsRouter(paths));
   app.use('/api/settings', settingsRouter());
+  app.use('/api/youtube', youtubeRouter());
 
   if (existsSync(paths.frontendDist)) {
     app.use(express.static(paths.frontendDist));

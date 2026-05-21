@@ -6,7 +6,13 @@ import type { AppPaths } from '../config/paths.js';
 import { assertBinaries } from '../lib/binaries.js';
 import { logger } from '../lib/logger.js';
 import { HttpError } from '../middleware/errorHandler.js';
-import { downloadBestAudio, getYoutubeTitle, isValidYoutubeUrl } from '../services/youtube.js';
+import {
+  downloadBestAudio,
+  getYoutubeTitle,
+  isValidYoutubeUrl,
+  normalizeYoutubeUrl,
+  YoutubeDownloadError,
+} from '../services/youtube.js';
 import { probeDurationSeconds } from '../services/ffprobe.js';
 import {
   newStagingProcessId,
@@ -38,21 +44,31 @@ export function prefetchRouter(paths: AppPaths): Router {
         throw new HttpError(400, 'Invalid YouTube URL.', 'invalid_youtube_url');
       }
 
+      const normalizedUrl = normalizeYoutubeUrl(url);
       const processId = newStagingProcessId();
       const outputBase = join(paths.mediaTemp, processId);
 
-      logger.info('prefetch: downloading audio', { processId, url });
-      const title = await getYoutubeTitle(paths.ytDlpExe, url).catch(() => '');
+      logger.info('prefetch: downloading audio', { processId, url: normalizedUrl });
+      const title = await getYoutubeTitle(
+        paths.ytDlpExe,
+        paths.configFile,
+        paths.youtubeCookiesFile,
+        url,
+        paths.ytDlpNodeExe,
+      ).catch(() => '');
       const audioPath = await downloadBestAudio({
         ytDlpExe: paths.ytDlpExe,
+        ytDlpNodeExe: paths.ytDlpNodeExe,
         ffmpegExe: paths.ffmpegExe,
+        configFile: paths.configFile,
+        youtubeCookiesFile: paths.youtubeCookiesFile,
         url,
         outputBase,
       });
 
       const response = await stageAudioFile(paths, {
         processId,
-        sourceUrl: url,
+        sourceUrl: normalizedUrl,
         audioPath,
         title,
         thumbnailUrl: `/api/staging/${processId}/thumbnail`,
@@ -61,6 +77,11 @@ export function prefetchRouter(paths: AppPaths): Router {
     } catch (err) {
       if (err instanceof HttpError) {
         next(err);
+        return;
+      }
+      if (err instanceof YoutubeDownloadError) {
+        logger.error('prefetch failed', err);
+        next(new HttpError(502, err.message, err.code));
         return;
       }
       logger.error('prefetch failed', err);

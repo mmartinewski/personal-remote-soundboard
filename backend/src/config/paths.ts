@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +27,10 @@ export interface AppPaths {
   readonly ffprobeExe: string;
   readonly ffplayExe: string;
   readonly ytDlpExe: string;
+  /** Node.js executable used by yt-dlp for YouTube JS challenges (EJS). */
+  readonly ytDlpNodeExe: string | null;
   readonly configFile: string;
+  readonly youtubeCookiesFile: string;
   readonly frontendDist: string;
 }
 
@@ -58,9 +61,36 @@ export function resolvePaths(): AppPaths {
     ffprobeExe: join(bin, 'ffprobe.exe'),
     ffplayExe: join(bin, 'ffplay.exe'),
     ytDlpExe: join(bin, 'yt-dlp.exe'),
+    ytDlpNodeExe: resolveYtDlpNodeExe(runtimeRoot, bin),
     configFile,
+    youtubeCookiesFile: join(appData, 'youtube.cookies.txt'),
     frontendDist,
   };
+}
+
+function resolveYtDlpNodeExe(runtimeRoot: string, bin: string): string | null {
+  const fromEnv = process.env.YTDLP_JS_RUNTIME?.trim();
+  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+
+  const nodeBinary = process.env.NODE_BINARY?.trim();
+  if (nodeBinary && existsSync(nodeBinary)) return nodeBinary;
+
+  const electronProcess = process as NodeJS.Process & { resourcesPath?: string };
+  const electronResourcesPath = electronProcess.resourcesPath;
+  if (process.versions.electron && electronResourcesPath) {
+    const bundled = join(electronResourcesPath, 'node', 'node.exe');
+    if (existsSync(bundled)) return bundled;
+  }
+
+  const packagedNode = join(runtimeRoot, 'node', 'node.exe');
+  if (existsSync(packagedNode)) return packagedNode;
+
+  const binNode = join(bin, 'node.exe');
+  if (existsSync(binNode)) return binNode;
+
+  if (existsSync(process.execPath)) return process.execPath;
+
+  return null;
 }
 
 function resolveRuntimeRoot(): string {

@@ -60,6 +60,13 @@ export interface CategorySuggestion {
   name: string;
 }
 
+export interface YoutubeSessionResponse {
+  connected: boolean;
+  cookies_file: string;
+  updated_at: string | null;
+  login_hint: string;
+}
+
 async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const res = await fetch(input, init);
   if (!res.ok) {
@@ -114,6 +121,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image_url }),
     }),
+  getYoutubeSession: () => request<YoutubeSessionResponse>('/api/youtube/session'),
   getSettings: () => request<SettingsResponse>('/api/settings'),
   setVolume: (playback_volume: number) =>
     request<SettingsResponse>('/api/settings', {

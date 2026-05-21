@@ -2,13 +2,19 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { existsSync, readFileSync } = require('node:fs');
 const { app, dialog, Menu, nativeImage, shell, Tray } = require('electron');
+const {
+  getYoutubeCookiesPath,
+  openYoutubeLoginWindow,
+} = require('./youtube-auth.cjs');
 
 const APP_NAME = 'Personal Soundboard Player';
 const DEFAULT_PORT = 3847;
+const APP_FOLDER_NAME = 'LocalSoundboardServer';
 
 let tray = null;
 let backend = null;
 let isQuitting = false;
+let youtubeCookiesSavedAt = null;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -17,13 +23,40 @@ if (!gotLock) {
 
 app.setName(APP_NAME);
 
-app.on('second-instance', () => {
+if (process.defaultApp || /electron/i.test(process.argv[0] ?? '')) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('soundboard', process.execPath, [
+      path.resolve(process.argv[1]),
+    ]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('soundboard');
+}
+
+app.on('second-instance', (_event, argv) => {
+  const protocolUrl = findProtocolUrl(argv);
+  if (protocolUrl) {
+    handleProtocolUrl(protocolUrl);
+    return;
+  }
   if (backend?.ready && backend.url) {
     void shell.openExternal(backend.url);
   }
 });
 
+if (process.platform === 'darwin') {
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    handleProtocolUrl(url);
+  });
+}
+
 app.whenReady().then(async () => {
+  const protocolUrl = findProtocolUrl(process.argv);
+  if (protocolUrl) {
+    handleProtocolUrl(protocolUrl);
+  }
+
   tray = new Tray(createTrayImage());
   tray.setToolTip(`${APP_NAME} starting...`);
   setTrayMenu({ starting: true });
@@ -64,6 +97,8 @@ async function startBackend() {
     env: {
       ...process.env,
       PERSONAL_CLIP_PLAYER_ROOT: runtimeRoot,
+      NODE_BINARY: nodeBinary,
+      YTDLP_JS_RUNTIME: nodeBinary,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -95,12 +130,21 @@ async function startBackend() {
 
 function setTrayMenu({ starting, failed = false }) {
   const openEnabled = Boolean(backend?.ready && backend.url) && !starting && !failed;
+  const cookiesFile = getAppDataYoutubeCookiesPath();
+  const hasYoutubeSession = existsSync(cookiesFile);
   const contextMenu = Menu.buildFromTemplate([
     {
       label: starting ? 'Starting...' : failed ? 'Startup failed' : 'Open in Browser',
       enabled: openEnabled,
       click: () => {
         if (backend?.ready && backend.url) void shell.openExternal(backend.url);
+      },
+    },
+    {
+      label: hasYoutubeSession ? 'Refresh YouTube sign-in' : 'Sign in to YouTube',
+      enabled: !starting && !failed,
+      click: () => {
+        openYoutubeSignIn();
       },
     },
     { type: 'separator' },
@@ -117,6 +161,51 @@ function setTrayMenu({ starting, failed = false }) {
   tray.on('click', () => {
     if (backend?.ready && backend.url) void shell.openExternal(backend.url);
   });
+}
+
+function openYoutubeSignIn() {
+  const cookiesFile = getAppDataYoutubeCookiesPath();
+  openYoutubeLoginWindow({
+    cookiesFile,
+    onSaved: (result) => {
+      youtubeCookiesSavedAt = new Date().toISOString();
+      void dialog
+        .showMessageBox({
+          type: 'info',
+          title: 'YouTube sign-in',
+          message: 'YouTube session saved.',
+          detail: `Exported ${result.cookieCount} cookie(s). You can load YouTube audio again in the app.`,
+        })
+        .catch((err) => {
+          console.error('[desktop] failed to show YouTube save confirmation', err);
+        });
+      if (tray) setTrayMenu({ starting: false });
+    },
+  });
+}
+
+function handleProtocolUrl(url) {
+  if (!url || !url.startsWith('soundboard://')) return;
+  const action = url.replace('soundboard://', '').replace(/\/+$/, '');
+  if (action === 'youtube-login' || action === 'youtube-login/') {
+    openYoutubeSignIn();
+  }
+}
+
+function findProtocolUrl(argv) {
+  return argv.find((arg) => typeof arg === 'string' && arg.startsWith('soundboard://')) ?? null;
+}
+
+function getAppDataDir() {
+  const appDataRoot = process.env.APPDATA;
+  if (!appDataRoot) {
+    throw new Error('APPDATA is not set. This app currently targets Windows only.');
+  }
+  return path.join(appDataRoot, APP_FOLDER_NAME);
+}
+
+function getAppDataYoutubeCookiesPath() {
+  return getYoutubeCookiesPath(getAppDataDir());
 }
 
 async function quitApp() {

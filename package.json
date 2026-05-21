@@ -72,7 +72,13 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Personal Soundboard Player"
-    }
+    },
+    "protocols": [
+      {
+        "name": "Personal Soundboard Player",
+        "schemes": ["soundboard"]
+      }
+    ]
   },
   "engines": {
     "node": ">=20"

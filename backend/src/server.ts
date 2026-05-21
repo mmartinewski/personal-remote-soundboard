@@ -20,7 +20,10 @@ export async function startBackendServer(): Promise<BackendServer> {
   ensureAppDataDirs(paths);
 
   initLogger(paths.logFile);
-  logger.info('starting Personal Clip Player', { appData: paths.appData });
+  logger.info('starting Personal Clip Player', {
+    appData: paths.appData,
+    ytDlpNode: paths.ytDlpNodeExe ?? '(not found)',
+  });
 
   const port = resolvePort(paths.configFile);
   logger.info(`resolved port: ${port}`);

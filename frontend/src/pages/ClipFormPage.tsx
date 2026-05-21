@@ -141,6 +141,14 @@ function firstDroppedImageFile(dataTransfer: DataTransfer): File | null {
   return Array.from(dataTransfer.files).find((file) => file.type.startsWith('image/')) ?? null;
 }
 
+function formatSessionTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
 function droppedImageUrl(dataTransfer: DataTransfer): string {
   const html = dataTransfer.getData('text/html');
   if (html) {
@@ -561,6 +569,8 @@ export default function ClipFormPage({ mode }: Props) {
   const [thumbnailDragActive, setThumbnailDragActive] = useState(false);
   const [loadingDroppedThumbnail, setLoadingDroppedThumbnail] = useState(false);
   const [loadingSuggestedThumbnail, setLoadingSuggestedThumbnail] = useState(false);
+  const [youtubeSessionConnected, setYoutubeSessionConnected] = useState(false);
+  const [youtubeSessionUpdatedAt, setYoutubeSessionUpdatedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const validYoutubeUrl = isValidYoutubeUrl(youtubeUrl);
@@ -712,6 +722,24 @@ export default function ClipFormPage({ mode }: Props) {
       audio.pause();
     };
   }, []);
+
+  const refreshYoutubeSession = useCallback(async () => {
+    try {
+      const session = await api.getYoutubeSession();
+      setYoutubeSessionConnected(session.connected);
+      setYoutubeSessionUpdatedAt(session.updated_at);
+    } catch {
+      setYoutubeSessionConnected(false);
+      setYoutubeSessionUpdatedAt(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshYoutubeSession();
+    const onFocus = () => void refreshYoutubeSession();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshYoutubeSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1090,6 +1118,50 @@ export default function ClipFormPage({ mode }: Props) {
             <p className="mt-2 text-xs text-text-muted">
               The saved audio is reloaded automatically so the trim can be updated.
             </p>
+          )}
+          {audioSourceType === 'youtube' && (
+            <div
+              className={
+                'mt-3 rounded-md border p-3 ' +
+                (youtubeSessionConnected
+                  ? 'border-emerald-500/40 bg-emerald-500/10'
+                  : 'border-amber-500/40 bg-amber-500/10')
+              }
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium">YouTube sign-in</p>
+                <span
+                  className={
+                    'rounded-full px-2 py-0.5 text-xs font-medium ' +
+                    (youtubeSessionConnected
+                      ? 'bg-emerald-500/20 text-emerald-200'
+                      : 'bg-amber-500/20 text-amber-200')
+                  }
+                >
+                  {youtubeSessionConnected ? 'Session saved' : 'Not saved yet'}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-text-muted">
+                {youtubeSessionConnected
+                  ? `Downloads can use your saved Google session${youtubeSessionUpdatedAt ? ` (saved ${formatSessionTime(youtubeSessionUpdatedAt)})` : ''}.`
+                  : 'Opening YouTube is not enough. In the login window, click the blue bar button Save session, or confirm save when closing the window.'}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a
+                  href="soundboard://youtube-login"
+                  className="rounded-md border border-surface bg-bg px-3 py-1.5 text-sm font-medium hover:border-accent"
+                >
+                  {youtubeSessionConnected ? 'Update sign-in' : 'Open sign-in window'}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => void refreshYoutubeSession()}
+                  className="rounded-md border border-surface bg-bg px-3 py-1.5 text-sm font-medium hover:border-accent"
+                >
+                  Refresh status
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
