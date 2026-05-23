@@ -23,10 +23,19 @@ import {
 
 const MAX_SOURCE_SECONDS = 600;
 const MAX_MP3_BYTES = 50 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 300 * 1024 * 1024;
 const mp3Upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: MAX_MP3_BYTES,
+    files: 1,
+    fields: 4,
+  },
+});
+const videoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_VIDEO_BYTES,
     files: 1,
     fields: 4,
   },
@@ -189,6 +198,44 @@ export function prefetchRouter(paths: AppPaths): Router {
       }
     })();
   });
+
+  router.post(
+    '/video-file',
+    videoUpload.single('video'),
+    (req: Request, res: Response, next: NextFunction) => {
+      void (async () => {
+        try {
+          assertBinaries(paths);
+          const file = req.file;
+          if (!file?.buffer?.length) {
+            throw new HttpError(400, 'Video file is required.', 'missing_video_file');
+          }
+          if (!isVideoUpload(file.originalname, file.mimetype)) {
+            throw new HttpError(
+              400,
+              'Unsupported video format. Use MP4, WebM, MOV, or MKV.',
+              'invalid_video_file',
+            );
+          }
+
+          const processId = newStagingProcessId();
+          const ext = videoExtension(file.originalname, file.mimetype);
+          const videoPath = join(paths.mediaTemp, `${processId}${ext}`);
+          writeFileSync(videoPath, file.buffer);
+          const response = await stageVideoFile(paths, {
+            processId,
+            sourceUrl: `local-file://${file.originalname || `video${ext}`}`,
+            videoPath,
+            title: stripVideoExtension(file.originalname || ''),
+            thumbnailUrl: '',
+          });
+          res.json(response);
+        } catch (err) {
+          next(err);
+        }
+      })();
+    },
+  );
 
   router.post(
     '/mp3-file',
@@ -401,4 +448,33 @@ function filenameTitleFromUrl(value: string): string {
 
 function stripMp3Extension(value: string): string {
   return value.replace(/\.mp3$/i, '').trim();
+}
+
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.mkv', '.m4v']);
+
+function isVideoUpload(filename: string | undefined, mimeType: string | undefined): boolean {
+  const name = filename?.toLowerCase() ?? '';
+  const ext = extname(name);
+  if (VIDEO_EXTENSIONS.has(ext)) {
+    return true;
+  }
+  const mime = mimeType?.toLowerCase() ?? '';
+  return mime.startsWith('video/');
+}
+
+function videoExtension(filename: string | undefined, mimeType: string | undefined): string {
+  const name = filename?.toLowerCase() ?? '';
+  const ext = extname(name);
+  if (VIDEO_EXTENSIONS.has(ext)) {
+    return ext;
+  }
+  const mime = mimeType?.toLowerCase() ?? '';
+  if (mime.includes('webm')) return '.webm';
+  if (mime.includes('quicktime')) return '.mov';
+  if (mime.includes('matroska')) return '.mkv';
+  return '.mp4';
+}
+
+function stripVideoExtension(value: string): string {
+  return value.replace(/\.(mp4|webm|mov|mkv|m4v)$/i, '').trim();
 }

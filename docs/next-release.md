@@ -29,6 +29,10 @@ Use a mesma origem do backend em produção (porta **3847**). No dev, o Vite (**
 
 ### Configuração no OBS / Streamlabs
 
+Guia completo (OBS Studio e Streamlabs Desktop): **[browser-source-setup.md](./browser-source-setup.md)**.
+
+Resumo:
+
 1. Adicione uma fonte **Browser** (Browser Source).
 2. Cole a URL do overlay (tabela acima).
 3. Defina largura e altura do canvas (ex.: 1920×1080).
@@ -36,6 +40,8 @@ Use a mesma origem do backend em produção (porta **3847**). No dev, o Vite (**
 5. Marque **Refresh browser when scene becomes active** se o SSE desconectar após muito tempo ocioso.
 
 A página usa fundo transparente. Se o OBS mostrar fundo preto, confira se a fonte não está com cor de fundo forçada nas propriedades da fonte.
+
+No formulário de clipe (**Video clip**), um card mostra a URL do overlay e instruções resumidas.
 
 ### Teste rápido (overlay)
 

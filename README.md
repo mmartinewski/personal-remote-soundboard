@@ -29,14 +29,44 @@ npm run fetch:bin
 
 `npm run fetch:bin` downloads the required executables into `bin/`. They are ignored by Git; see [`bin/README.md`](bin/README.md) for manual installation if the automatic download fails.
 
-## Browser source (OBS / Streamlabs)
+## Browser source (OBS Studio / Streamlabs)
 
-Overlay URL for a transparent browser source that plays triggered clips:
+**Video clips** play on a transparent **browser overlay** in your streaming software—not through local `ffplay`. **Audio clips** still use local playback on the streaming PC.
 
-- Dev: `http://localhost:5173/overlay/browser`
-- Production: `http://localhost:3847/overlay/browser`
+Create **video** clips in the editor (YouTube link or a file from your PC). When you click a video clip on the dashboard, it appears in the browser source, plays, and fades out.
 
-Create **YouTube video** clips in the editor; clicking a video clip on the dashboard plays it on the overlay. See [docs/next-release.md](docs/next-release.md) for OBS setup and release checklist.
+### Overlay URL
+
+| Environment | URL |
+| --- | --- |
+| Development (`npm run dev`) | `http://localhost:5173/overlay/browser` |
+| Production / installed app | `http://localhost:3847/overlay/browser` |
+| LAN (phone or another PC) | `http://<streaming-PC-IP>:3847/overlay/browser` |
+
+The clip form shows the URL for your current session and a **Copy URL** button when **Video clip** is selected.
+
+### OBS Studio (quick setup)
+
+1. Open the scene where the overlay should appear.
+2. **Sources** → **+** → **Browser**.
+3. Paste the overlay URL (table above).
+4. Set **Width** / **Height** to your canvas (e.g. 1920×1080).
+5. Optional: enable **Refresh browser when scene becomes active**.
+6. Save, then play a video clip from the dashboard to test.
+
+### Streamlabs Desktop (quick setup)
+
+1. Open your scene.
+2. **Sources** → **+** → **Browser Source**.
+3. Paste the same overlay URL.
+4. Match **Width** / **Height** to your output resolution.
+5. Confirm and test with a video clip from the dashboard.
+
+### More detail
+
+Step-by-step notes, troubleshooting (black background), and audio vs video behavior: **[docs/browser-source-setup.md](docs/browser-source-setup.md)**.
+
+Release checklist and API notes: [docs/next-release.md](docs/next-release.md).
 
 ## Development
 
@@ -168,7 +198,7 @@ backend/    API Express, SQLite, FFmpeg/ffplay, yt-dlp
 frontend/   React + Vite + Tailwind
 bin/        unversioned local executables
 config/     configuration example
-docs/       technical specification
+docs/       technical specification, browser source setup
 scripts/    project utilities
 ```
 

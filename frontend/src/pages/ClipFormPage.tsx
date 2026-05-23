@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, type PrefetchResponse } from '../lib/api';
+import { getBrowserOverlayUrl } from '../lib/overlay';
 import VideoRangeTrimmer from '../components/VideoRangeTrimmer';
 import { isValidYoutubeUrl } from '../lib/youtube';
 import { isValidTimeString, secondsToTimeString, timeStringToSeconds } from '../lib/time';
@@ -10,6 +11,7 @@ interface Props {
 }
 
 type AudioSourceType = 'youtube' | 'mp3-url' | 'local-file';
+type VideoSourceType = 'youtube' | 'local-file';
 type EditorKind = 'audio' | 'video';
 
 interface CropRect {
@@ -538,13 +540,18 @@ export default function ClipFormPage({ mode }: Props) {
   const params = useParams();
   const clipId = mode === 'edit' ? Number(params.id) : NaN;
   const previewAudioRef = useRef<HTMLAudioElement>(null);
+  const loopTrimPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [videoPreviewNonce, setVideoPreviewNonce] = useState(0);
+  const [videoPreviewCutUrl, setVideoPreviewCutUrl] = useState<string | null>(null);
+  const [videoPreviewLoop, setVideoPreviewLoop] = useState(false);
 
   const [editorKind, setEditorKind] = useState<EditorKind>('audio');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [mp3Url, setMp3Url] = useState('');
   const [localMp3File, setLocalMp3File] = useState<File | null>(null);
+  const [localVideoFile, setLocalVideoFile] = useState<File | null>(null);
   const [audioSourceType, setAudioSourceType] = useState<AudioSourceType>('youtube');
+  const [videoSourceType, setVideoSourceType] = useState<VideoSourceType>('youtube');
   const [sourceReference, setSourceReference] = useState('');
   const [processId, setProcessId] = useState('');
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
@@ -595,13 +602,16 @@ export default function ClipFormPage({ mode }: Props) {
     (timeStringToSeconds(endTime) <= durationSeconds + 0.05 &&
       timeStringToSeconds(startTime) >= -0.001);
 
-  const canPrefetch =
+  const canPrefetchAudio =
     !prefetching &&
     (audioSourceType === 'youtube'
       ? validYoutubeUrl
       : audioSourceType === 'mp3-url'
         ? validMp3Url
         : Boolean(localMp3File));
+  const canPrefetchVideo =
+    !prefetching &&
+    (videoSourceType === 'youtube' ? validYoutubeUrl : Boolean(localVideoFile));
   const thumbReady = Boolean(thumbPreviewSrc && crop);
   const canSaveCreate =
     mode === 'create' &&
@@ -681,7 +691,14 @@ export default function ClipFormPage({ mode }: Props) {
         setSourceReference(c.youtube_url);
         const isVideoClip = c.clip_type === 'video';
         setEditorKind(isVideoClip ? 'video' : 'audio');
-        if (isValidYoutubeUrl(c.youtube_url)) {
+        if (isVideoClip) {
+          if (isValidYoutubeUrl(c.youtube_url)) {
+            setVideoSourceType('youtube');
+            setYoutubeUrl(c.youtube_url);
+          } else {
+            setVideoSourceType('local-file');
+          }
+        } else if (isValidYoutubeUrl(c.youtube_url)) {
           setAudioSourceType('youtube');
           setYoutubeUrl(c.youtube_url);
         } else if (isValidHttpUrl(c.youtube_url)) {
@@ -865,13 +882,21 @@ export default function ClipFormPage({ mode }: Props) {
   );
 
   const handleLoadVideo = async () => {
-    if (!validYoutubeUrl || prefetching) return;
+    if (!canPrefetchVideo) return;
     setPrefetching(true);
     setError(null);
     try {
-      const source = youtubeUrl.trim();
-      const pf = await api.prefetchYoutubeVideo(source);
-      applyPrefetchResult(pf, { sourceReference: source, mediaKind: 'video' });
+      if (videoSourceType === 'youtube') {
+        const source = youtubeUrl.trim();
+        const pf = await api.prefetchYoutubeVideo(source);
+        applyPrefetchResult(pf, { sourceReference: source, mediaKind: 'video' });
+      } else if (localVideoFile) {
+        const pf = await api.prefetchVideoFile(localVideoFile);
+        applyPrefetchResult(pf, {
+          sourceReference: `local-file://${localVideoFile.name}`,
+          mediaKind: 'video',
+        });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -880,7 +905,7 @@ export default function ClipFormPage({ mode }: Props) {
   };
 
   const handleLoadAudio = async () => {
-    if (!canPrefetch) return;
+    if (!canPrefetchAudio) return;
     setPrefetching(true);
     setError(null);
     try {
@@ -903,14 +928,51 @@ export default function ClipFormPage({ mode }: Props) {
     }
   };
 
+  const startVideoSegmentPreview = useCallback(() => {
+    if (!processId || !videoUrl || !timesOk || !clipLenOk || !durationOk) return;
+    setPreviewing(true);
+    setVideoPreviewCutUrl(
+      `${api.getStagingVideoPreviewUrl({
+        process_id: processId,
+        start_time: startTime.trim(),
+        end_time: endTime.trim(),
+      })}&_=${Date.now()}`,
+    );
+    setVideoPreviewNonce((n) => n + 1);
+  }, [processId, videoUrl, timesOk, clipLenOk, durationOk, startTime, endTime]);
+
+  const scheduleLoopPreviewAfterTrim = useCallback(() => {
+    if (!videoPreviewLoop) return;
+    if (loopTrimPreviewTimerRef.current) {
+      clearTimeout(loopTrimPreviewTimerRef.current);
+    }
+    loopTrimPreviewTimerRef.current = setTimeout(() => {
+      loopTrimPreviewTimerRef.current = null;
+      startVideoSegmentPreview();
+    }, 350);
+  }, [videoPreviewLoop, startVideoSegmentPreview]);
+
+  useEffect(() => {
+    return () => {
+      if (loopTrimPreviewTimerRef.current) {
+        clearTimeout(loopTrimPreviewTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleClientPreview = async () => {
     if (!processId || !timesOk || !clipLenOk || !durationOk) return;
     setError(null);
     try {
       if (editorKind === 'video') {
         if (!videoUrl) return;
-        setPreviewing(true);
-        setVideoPreviewNonce((n) => n + 1);
+        if (previewing) {
+          setVideoPreviewNonce(0);
+          setVideoPreviewCutUrl(null);
+          stopVideoPreview();
+          return;
+        }
+        startVideoSegmentPreview();
         return;
       }
       if (!audioUrl) return;
@@ -1063,7 +1125,7 @@ export default function ClipFormPage({ mode }: Props) {
         </h2>
         <p className="text-sm text-text-muted">
           {editorKind === 'video'
-            ? 'Download a YouTube video, choose the segment (max. 30s), and save for browser overlay playback.'
+            ? 'Load a YouTube link or a video from your computer, choose the segment (max. 30s), and save for browser overlay playback.'
             : 'Download the audio, choose the segment (max. 30s), adjust the thumbnail, and save.'}
         </p>
       </header>
@@ -1072,7 +1134,7 @@ export default function ClipFormPage({ mode }: Props) {
         <div className="flex flex-wrap gap-2">
           {([
             ['audio', 'Audio clip'],
-            ['video', 'YouTube video'],
+            ['video', 'Video clip'],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -1101,9 +1163,52 @@ export default function ClipFormPage({ mode }: Props) {
           </p>
         ) : null}
 
+        {editorKind === 'video' ? (
+          <div className="rounded-md border border-sky-500/40 bg-sky-500/10 p-4">
+            <h3 className="text-sm font-medium text-sky-100">
+              OBS Studio / Streamlabs browser source
+            </h3>
+            <p className="mt-2 text-sm text-text-muted">
+              Video clips are not played with local audio output. When you click a video clip on
+              the dashboard, it is shown on the transparent browser overlay in OBS Studio or
+              Streamlabs Desktop (browser source).
+            </p>
+            <p className="mt-2 text-xs text-text-muted">
+              Add a <span className="font-medium text-text">Browser Source</span> in your
+              streaming app and paste this URL:
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <code className="min-w-0 flex-1 break-all rounded-md border border-surface bg-bg px-2 py-1.5 text-xs text-text">
+                {getBrowserOverlayUrl()}
+              </code>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(getBrowserOverlayUrl()).catch(() => {
+                    setError('Could not copy the overlay URL to the clipboard.');
+                  });
+                }}
+                className="shrink-0 rounded-md border border-surface bg-bg px-3 py-1.5 text-xs font-medium hover:border-accent"
+              >
+                Copy URL
+              </button>
+            </div>
+            <ul className="mt-3 list-inside list-disc space-y-1 text-xs text-text-muted">
+              <li>
+                <span className="font-medium text-text">OBS Studio:</span> Sources → + → Browser
+                → paste URL → set size to your canvas (e.g. 1920×1080).
+              </li>
+              <li>
+                <span className="font-medium text-text">Streamlabs:</span> Sources → + → Browser
+                Source → paste URL → same canvas size.
+              </li>
+            </ul>
+          </div>
+        ) : null}
+
         <div className="rounded-md border border-surface bg-surface-soft p-4">
           <h3 className="text-sm font-medium">
-            {editorKind === 'video' ? 'YouTube video source' : 'Audio source'}
+            {editorKind === 'video' ? 'Video source' : 'Audio source'}
           </h3>
           {editorKind === 'audio' ? (
           <div className="mt-3 flex flex-wrap gap-2 border-b border-surface pb-3">
@@ -1115,7 +1220,10 @@ export default function ClipFormPage({ mode }: Props) {
               <button
                 key={key}
                 type="button"
-                onClick={() => setAudioSourceType(key)}
+                onClick={() => {
+                  setAudioSourceType(key);
+                  clearLoadedMedia();
+                }}
                 className={
                   'rounded-md px-3 py-1.5 text-sm font-medium ' +
                   (audioSourceType === key
@@ -1127,10 +1235,35 @@ export default function ClipFormPage({ mode }: Props) {
               </button>
             ))}
           </div>
-          ) : null}
+          ) : (
+          <div className="mt-3 flex flex-wrap gap-2 border-b border-surface pb-3">
+            {([
+              ['youtube', 'YouTube'],
+              ['local-file', 'Local file'],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  setVideoSourceType(key);
+                  clearLoadedMedia();
+                }}
+                className={
+                  'rounded-md px-3 py-1.5 text-sm font-medium ' +
+                  (videoSourceType === key
+                    ? 'bg-accent text-white'
+                    : 'border border-surface bg-bg hover:border-accent')
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          )}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            {(editorKind === 'video' || audioSourceType === 'youtube') && (
+            {((editorKind === 'video' && videoSourceType === 'youtube') ||
+              (editorKind === 'audio' && audioSourceType === 'youtube')) && (
               <>
                 <input
                   id="youtube-url"
@@ -1183,9 +1316,24 @@ export default function ClipFormPage({ mode }: Props) {
               />
             )}
 
+            {editorKind === 'video' && videoSourceType === 'local-file' && (
+              <input
+                id="local-video"
+                type="file"
+                accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.mkv,.m4v"
+                onChange={(e) => {
+                  setLocalVideoFile(e.target.files?.[0] ?? null);
+                  clearLoadedMedia();
+                }}
+                className="block min-w-[200px] flex-1 text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
+              />
+            )}
+
             <button
               type="button"
-              disabled={editorKind === 'video' ? !validYoutubeUrl || prefetching : !canPrefetch}
+              disabled={
+                editorKind === 'video' ? !canPrefetchVideo : !canPrefetchAudio
+              }
               onClick={() => void (editorKind === 'video' ? handleLoadVideo() : handleLoadAudio())}
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -1197,10 +1345,16 @@ export default function ClipFormPage({ mode }: Props) {
             </button>
           </div>
 
-          {(editorKind === 'video' || audioSourceType === 'youtube') &&
+          {((editorKind === 'video' && videoSourceType === 'youtube') ||
+            (editorKind === 'audio' && audioSourceType === 'youtube')) &&
             !validYoutubeUrl &&
             youtubeUrl.length > 0 && (
             <p className="mt-2 text-sm text-red-300">Invalid YouTube URL.</p>
+          )}
+          {editorKind === 'video' && videoSourceType === 'local-file' && !localVideoFile && (
+            <p className="mt-2 text-xs text-text-muted">
+              MP4, WebM, MOV, or MKV — up to 10 minutes and 300 MB.
+            </p>
           )}
           {audioSourceType === 'mp3-url' && !validMp3Url && mp3Url.length > 0 && (
             <p className="mt-2 text-sm text-red-300">Invalid MP3 URL.</p>
@@ -1212,7 +1366,8 @@ export default function ClipFormPage({ mode }: Props) {
                 : 'The saved audio is reloaded automatically so the trim can be updated.'}
             </p>
           )}
-          {(editorKind === 'video' || audioSourceType === 'youtube') && (
+          {((editorKind === 'video' && videoSourceType === 'youtube') ||
+            (editorKind === 'audio' && audioSourceType === 'youtube')) && (
             <div
               className={
                 'mt-3 rounded-md border p-3 ' +
@@ -1264,16 +1419,23 @@ export default function ClipFormPage({ mode }: Props) {
             <VideoRangeTrimmer
               videoUrl={videoUrl}
               previewNonce={videoPreviewNonce}
+              previewCutUrl={videoPreviewCutUrl}
+              previewLoop={videoPreviewLoop}
               durationSeconds={durationSeconds}
               startTime={startTime}
               endTime={endTime}
               onStartChange={setStartTime}
               onEndChange={setEndTime}
-              onPreviewEnd={stopVideoPreview}
+              onPreviewEnd={() => {
+                setVideoPreviewCutUrl(null);
+                stopVideoPreview();
+              }}
               onPreviewError={(message) => {
+                setVideoPreviewCutUrl(null);
                 setError(message);
                 stopVideoPreview();
               }}
+              onLoopTrimPreview={scheduleLoopPreviewAfterTrim}
             />
           ) : (
             <WaveformTrimmer
@@ -1320,8 +1482,8 @@ export default function ClipFormPage({ mode }: Props) {
           </div>
           ) : (
             <p className="sm:col-span-2 text-xs text-text-muted">
-              Preview plays the selected segment instantly. Saving encodes the final MP4 for
-              the OBS browser overlay.
+              The player shows the start of the trim. Preview encodes the segment with FFmpeg
+              (same as save) so playback matches the cut. Saving writes the final MP4 for OBS.
             </p>
           )}
           <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
@@ -1337,8 +1499,19 @@ export default function ClipFormPage({ mode }: Props) {
               onClick={() => void handleClientPreview()}
               className="rounded-md border border-surface bg-bg px-4 py-2 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Preview
+              {editorKind === 'video' && previewing ? 'Stop preview' : 'Preview'}
             </button>
+            {editorKind === 'video' ? (
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-text-muted">
+                <input
+                  type="checkbox"
+                  checked={videoPreviewLoop}
+                  onChange={(e) => setVideoPreviewLoop(e.target.checked)}
+                  className="accent-accent"
+                />
+                Loop preview
+              </label>
+            ) : null}
             {timesOk && (
               <span className="text-xs text-text-muted">
                 Segment duration: {clipLen.toFixed(3)}s

@@ -163,6 +163,14 @@ export const api = {
       body: form,
     });
   },
+  prefetchVideoFile: (video: File) => {
+    const form = new FormData();
+    form.append('video', video);
+    return request<PrefetchResponse>('/api/clips/prefetch/video-file', {
+      method: 'POST',
+      body: form,
+    });
+  },
   stageClipAudio: (id: number) =>
     request<PrefetchResponse>(`/api/clips/${id}/stage-audio`, { method: 'POST' }),
   stageClipVideo: (id: number) =>

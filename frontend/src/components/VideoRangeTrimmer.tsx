@@ -3,9 +3,38 @@ import { isValidTimeString, secondsToTimeString, timeStringToSeconds } from '../
 
 const MAX_CLIP_SEC = 30;
 const MIN_CLIP_SEC = 0.05;
-const END_EPSILON = 0.05;
+/** Stop slightly before end so we never overshoot between checks (one ~60fps frame). */
+const END_STOP_LEAD_SEC = 1 / 60;
 /** Min interval between scrub seeks while dragging (avoids decode/rebuffer storms). */
 const SCRUB_SEEK_MS = 80;
+
+function waitForVideoSeek(video: HTMLVideoElement, targetSeconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      video.removeEventListener('seeked', finish);
+    };
+    const timer = setTimeout(finish, 2000);
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      if (Math.abs(video.currentTime - targetSeconds) < 0.02) {
+        finish();
+        return;
+      }
+      video.addEventListener('seeked', finish, { once: true });
+      video.currentTime = targetSeconds;
+      return;
+    }
+    const onMeta = () => {
+      video.removeEventListener('loadedmetadata', onMeta);
+      void waitForVideoSeek(video, targetSeconds).then(resolve);
+    };
+    video.addEventListener('loadedmetadata', onMeta, { once: true });
+  });
+}
 
 function clampNumber(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -15,6 +44,8 @@ function clampNumber(value: number, min: number, max: number): number {
 export default function VideoRangeTrimmer({
   videoUrl,
   previewNonce = 0,
+  previewCutUrl = null,
+  previewLoop = false,
   durationSeconds,
   startTime,
   endTime,
@@ -22,9 +53,14 @@ export default function VideoRangeTrimmer({
   onEndChange,
   onPreviewEnd,
   onPreviewError,
+  onLoopTrimPreview,
 }: {
   videoUrl: string;
   previewNonce?: number;
+  /** FFmpeg-cut segment from staging preview API (frame-accurate). */
+  previewCutUrl?: string | null;
+  /** When true, segment preview repeats until stopped. */
+  previewLoop?: boolean;
   durationSeconds: number | null;
   startTime: string;
   endTime: string;
@@ -32,6 +68,8 @@ export default function VideoRangeTrimmer({
   onEndChange: (value: string) => void;
   onPreviewEnd?: () => void;
   onPreviewError?: (message: string) => void;
+  /** Called after trim handles are released while loop preview is enabled. */
+  onLoopTrimPreview?: () => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -43,9 +81,16 @@ export default function VideoRangeTrimmer({
   const endSecRef = useRef(0);
   const onPreviewEndRef = useRef(onPreviewEnd);
   const onPreviewErrorRef = useRef(onPreviewError);
+  const onLoopTrimPreviewRef = useRef(onLoopTrimPreview);
   const lastScrubSeekRef = useRef(-1);
   const scrubSeekTargetRef = useRef<number | null>(null);
   const scrubSeekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewWatchRafRef = useRef<number | null>(null);
+  const previewWatchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const previewCutUrlRef = useRef(previewCutUrl);
+  const previewLoopRef = useRef(previewLoop);
+  previewCutUrlRef.current = previewCutUrl;
+  previewLoopRef.current = previewLoop;
 
   const duration = durationSeconds ?? 0;
   const startSec = isValidTimeString(startTime) ? timeStringToSeconds(startTime) : 0;
@@ -58,8 +103,9 @@ export default function VideoRangeTrimmer({
   endSecRef.current = endSec;
   onPreviewEndRef.current = onPreviewEnd;
   onPreviewErrorRef.current = onPreviewError;
+  onLoopTrimPreviewRef.current = onLoopTrimPreview;
 
-  const seekToTime = useCallback((seconds: number) => {
+  const seekToTimeFast = useCallback((seconds: number) => {
     const video = videoRef.current;
     const dur = durationRef.current;
     if (!video || dur <= 0 || segmentPreviewActiveRef.current) return;
@@ -74,6 +120,16 @@ export default function VideoRangeTrimmer({
     }
   }, []);
 
+  const seekToTimePrecise = useCallback(async (seconds: number) => {
+    const video = videoRef.current;
+    const dur = durationRef.current;
+    if (!video || dur <= 0 || segmentPreviewActiveRef.current) return;
+    const target = clampNumber(seconds, 0, Math.max(0, dur - 0.001));
+    lastScrubSeekRef.current = target;
+    video.pause();
+    await waitForVideoSeek(video, target);
+  }, []);
+
   const clearScrubSeekTimer = useCallback(() => {
     if (scrubSeekTimerRef.current) {
       clearTimeout(scrubSeekTimerRef.current);
@@ -86,9 +142,9 @@ export default function VideoRangeTrimmer({
     (seconds: number) => {
       if (segmentPreviewActiveRef.current || dragRef.current === null) return;
       clearScrubSeekTimer();
-      seekToTime(seconds);
+      seekToTimeFast(seconds);
     },
-    [clearScrubSeekTimer, seekToTime],
+    [clearScrubSeekTimer, seekToTimeFast],
   );
 
   const scheduleScrubSeek = useCallback(
@@ -103,29 +159,105 @@ export default function VideoRangeTrimmer({
         const target = scrubSeekTargetRef.current;
         scrubSeekTargetRef.current = null;
         if (target === null || dragRef.current === null) return;
-        seekToTime(target);
+        seekToTimeFast(target);
       }, SCRUB_SEEK_MS);
     },
-    [seekToTime],
+    [seekToTimeFast],
   );
 
-  const seekToMidpoint = useCallback(() => {
-    const midpoint = (startSecRef.current + endSecRef.current) / 2;
-    if (!Number.isFinite(midpoint)) return;
-    lastScrubSeekRef.current = -1;
-    seekToTime(midpoint);
-  }, [seekToTime]);
+  const stopPreviewWatch = useCallback(() => {
+    if (previewWatchRafRef.current !== null) {
+      cancelAnimationFrame(previewWatchRafRef.current);
+      previewWatchRafRef.current = null;
+    }
+    if (previewWatchIntervalRef.current !== null) {
+      clearInterval(previewWatchIntervalRef.current);
+      previewWatchIntervalRef.current = null;
+    }
+  }, []);
 
   const exitSegmentPreview = useCallback(() => {
     const video = videoRef.current;
-    if (!video) return;
+    stopPreviewWatch();
     segmentPreviewActiveRef.current = false;
+    if (!video) {
+      onPreviewEndRef.current?.();
+      return;
+    }
     video.controls = false;
     video.muted = true;
+    video.loop = false;
     video.pause();
-    seekToMidpoint();
+    if (videoUrl) {
+      video.src = videoUrl;
+      video.load();
+      const onLoaded = () => {
+        video.removeEventListener('loadedmetadata', onLoaded);
+        void seekToTimePrecise(startSecRef.current);
+      };
+      video.addEventListener('loadedmetadata', onLoaded, { once: true });
+    }
     onPreviewEndRef.current?.();
-  }, [seekToMidpoint]);
+  }, [seekToTimePrecise, stopPreviewWatch, videoUrl]);
+
+  const startPreviewWatch = useCallback(
+    (video: HTMLVideoElement, options?: { useClipDuration?: boolean }) => {
+      stopPreviewWatch();
+      const useClipDuration = options?.useClipDuration === true;
+
+      const stopAtEndIfNeeded = (): boolean => {
+        if (!segmentPreviewActiveRef.current) {
+          return true;
+        }
+        const end = useClipDuration
+          ? Number.isFinite(video.duration)
+            ? video.duration
+            : endSecRef.current - startSecRef.current
+          : endSecRef.current;
+        if (video.currentTime < end - END_STOP_LEAD_SEC) {
+          return false;
+        }
+        if (previewLoopRef.current) {
+          const loopStart = useClipDuration ? 0 : startSecRef.current;
+          void waitForVideoSeek(video, loopStart).then(() => {
+            if (!segmentPreviewActiveRef.current) return;
+            void video.play().catch(() => {
+              segmentPreviewActiveRef.current = false;
+              onPreviewErrorRef.current?.('Could not loop the segment preview.');
+              onPreviewEndRef.current?.();
+            });
+          });
+          return false;
+        }
+        video.pause();
+        const snapEnd = clampNumber(end, 0, Number.isFinite(video.duration) ? video.duration : end);
+        try {
+          if (Math.abs(video.currentTime - snapEnd) > 0.001) {
+            video.currentTime = snapEnd;
+          }
+        } catch {
+          /* seek can fail while metadata is loading */
+        }
+        exitSegmentPreview();
+        return true;
+      };
+
+      const tick = () => {
+        if (stopAtEndIfNeeded()) {
+          previewWatchRafRef.current = null;
+          return;
+        }
+        previewWatchRafRef.current = requestAnimationFrame(tick);
+      };
+
+      previewWatchRafRef.current = requestAnimationFrame(tick);
+      // Browsers throttle rAF in background tabs; interval keeps the end cut reliable.
+      previewWatchIntervalRef.current = setInterval(() => {
+        stopAtEndIfNeeded();
+      }, 50);
+    },
+    [exitSegmentPreview, stopPreviewWatch],
+  );
 
   useEffect(() => {
     const video = videoRef.current;
@@ -139,7 +271,7 @@ export default function VideoRangeTrimmer({
 
     const onLoaded = () => {
       if (!segmentPreviewActiveRef.current) {
-        seekToMidpoint();
+        void seekToTimePrecise(startSecRef.current);
       }
     };
     video.addEventListener('loadedmetadata', onLoaded);
@@ -147,15 +279,29 @@ export default function VideoRangeTrimmer({
     return () => {
       video.removeEventListener('loadedmetadata', onLoaded);
       segmentPreviewActiveRef.current = false;
+      stopPreviewWatch();
       video.pause();
       clearScrubSeekTimer();
     };
-  }, [videoUrl, seekToMidpoint, clearScrubSeekTimer]);
+  }, [videoUrl, seekToTimePrecise, clearScrubSeekTimer, stopPreviewWatch]);
+
+  useEffect(() => {
+    if (segmentPreviewActiveRef.current || dragRef.current || !videoUrl || duration <= 0) {
+      return;
+    }
+    void seekToTimePrecise(startSec);
+  }, [startTime, videoUrl, duration, seekToTimePrecise]);
 
   useEffect(() => {
     if (previewNonce === previewNonceRef.current) return;
     previewNonceRef.current = previewNonce;
-    if (previewNonce === 0) return;
+
+    if (previewNonce === 0) {
+      if (segmentPreviewActiveRef.current) {
+        exitSegmentPreview();
+      }
+      return;
+    }
 
     const video = videoRef.current;
     const dur = durationRef.current;
@@ -167,44 +313,98 @@ export default function VideoRangeTrimmer({
     video.controls = true;
     video.muted = false;
 
-    const startPlayback = () => {
-      video.currentTime = clampNumber(start, 0, dur);
-      void video.play().catch(() => {
-        segmentPreviewActiveRef.current = false;
-        onPreviewErrorRef.current?.('Could not start the segment preview.');
-        onPreviewEndRef.current?.();
-      });
+    const cutUrl = previewCutUrlRef.current;
+
+    const playCutPreview = () => {
+      if (!cutUrl) return;
+      stopPreviewWatch();
+      video.src = cutUrl;
+      video.load();
+
+      const begin = () => {
+        video.loop = previewLoopRef.current;
+        void waitForVideoSeek(video, 0)
+          .then(() => video.play())
+          .then(() => {
+            if (!segmentPreviewActiveRef.current) return;
+            if (!previewLoopRef.current) {
+              startPreviewWatch(video, { useClipDuration: true });
+            }
+          })
+          .catch(() => {
+            segmentPreviewActiveRef.current = false;
+            stopPreviewWatch();
+            onPreviewErrorRef.current?.('Could not start the segment preview.');
+            onPreviewEndRef.current?.();
+          });
+      };
+
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        begin();
+      } else {
+        video.addEventListener('loadedmetadata', begin, { once: true });
+      }
     };
 
-    const onTimeUpdate = () => {
-      if (!segmentPreviewActiveRef.current) return;
-      if (video.currentTime >= endSecRef.current - END_EPSILON) {
-        video.pause();
-        exitSegmentPreview();
+    const playStagingSegment = () => {
+      stopPreviewWatch();
+      const begin = () => {
+        video.loop = false;
+        void waitForVideoSeek(video, clampNumber(start, 0, dur))
+          .then(() => video.play())
+          .then(() => {
+            if (!segmentPreviewActiveRef.current) return;
+            startPreviewWatch(video);
+          })
+          .catch(() => {
+            segmentPreviewActiveRef.current = false;
+            stopPreviewWatch();
+            onPreviewErrorRef.current?.('Could not start the segment preview.');
+            onPreviewEndRef.current?.();
+          });
+      };
+
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        begin();
+      } else {
+        video.addEventListener('loadedmetadata', begin, { once: true });
       }
     };
 
     const onError = () => {
       if (!segmentPreviewActiveRef.current) return;
       segmentPreviewActiveRef.current = false;
+      stopPreviewWatch();
       onPreviewErrorRef.current?.('Could not play the segment preview.');
       onPreviewEndRef.current?.();
     };
 
-    video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('error', onError, { once: true });
 
-    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
-      startPlayback();
+    if (cutUrl) {
+      playCutPreview();
+    } else if (video.src !== videoUrl) {
+      video.src = videoUrl;
+      video.load();
+      video.addEventListener(
+        'loadedmetadata',
+        () => {
+          playStagingSegment();
+        },
+        { once: true },
+      );
     } else {
-      video.addEventListener('loadedmetadata', startPlayback, { once: true });
+      playStagingSegment();
     }
 
     return () => {
-      video.removeEventListener('timeupdate', onTimeUpdate);
+      segmentPreviewActiveRef.current = false;
+      stopPreviewWatch();
       video.removeEventListener('error', onError);
+      video.loop = false;
+      video.pause();
     };
-  }, [previewNonce, videoUrl, exitSegmentPreview]);
+  }, [previewNonce, videoUrl, exitSegmentPreview, startPreviewWatch, stopPreviewWatch]);
 
   const xToSeconds = (clientX: number): number => {
     const track = trackRef.current;
@@ -289,7 +489,12 @@ export default function VideoRangeTrimmer({
     dragRef.current = null;
     clearScrubSeekTimer();
     if (wasDragging) {
-      seekToMidpoint();
+      lastScrubSeekRef.current = -1;
+      if (previewLoopRef.current && onLoopTrimPreviewRef.current) {
+        onLoopTrimPreviewRef.current();
+      } else {
+        void seekToTimePrecise(startSecRef.current);
+      }
     }
   };
 
