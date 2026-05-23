@@ -95,8 +95,15 @@ npm run pack:win
 - [ ] Instalar o `.exe` em máquina limpa ou VM
 - [ ] Tray: **Open in Browser** abre o dashboard
 - [ ] Browser source em `http://localhost:3847/overlay/browser` (ajustar porta se customizada)
-- [ ] Publicar asset no GitHub Releases ( `release/` não vai para o Git)
-- [ ] Notas de release: features, breaking changes, passos do browser source
+### Publicar no GitHub
+
+Com `gh` autenticado (`gh auth login`):
+
+```bash
+npm run publish:win
+```
+
+Gera o instalador em `release/` e cria ou atualiza o GitHub Release (tag `v` + versão do `package.json`).
 
 ### Empacotamento do vídeo de teste
 

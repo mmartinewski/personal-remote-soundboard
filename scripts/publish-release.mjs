@@ -1,0 +1,215 @@
+#!/usr/bin/env node
+/**
+ * Build (optional) and publish the Windows NSIS installer to GitHub Releases via `gh`.
+ *
+ * Usage:
+ *   npm run publish:win          # installer:win + upload
+ *   npm run publish:release      # upload only (installer must exist in release/)
+ *
+ * Environment:
+ *   RELEASE_NOTES       - release body (markdown)
+ *   RELEASE_NOTES_FILE - path to markdown file for --notes-file
+ *   GITHUB_REPO         - override owner/repo (default: from `gh repo view`)
+ *
+ * Flags:
+ *   --draft             - create a draft release
+ *   --skip-build        - do not run installer:win (publish:release sets this implicitly)
+ */
+
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { execFileSync, spawnSync } from 'node:child_process';
+
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const root = join(scriptDir, '..');
+const args = process.argv.slice(2);
+const draft = args.includes('--draft');
+const skipBuild = args.includes('--skip-build');
+
+function readPackageJson() {
+  return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+}
+
+function resolveGhExecutable() {
+  const candidates = ['gh'];
+  if (process.platform === 'win32') {
+    candidates.push(
+      'C:\\Program Files\\GitHub CLI\\gh.exe',
+      'C:\\Program Files (x86)\\GitHub CLI\\gh.exe',
+      join(homedir(), 'scoop', 'shims', 'gh.exe'),
+    );
+  }
+  for (const candidate of candidates) {
+    if (candidate === 'gh') {
+      try {
+        runCapture(candidate, ['--version']);
+        return candidate;
+      } catch {
+        continue;
+      }
+    }
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+let ghExe = 'gh';
+
+function run(command, commandArgs, options = {}) {
+  const exe = command === 'gh' ? ghExe : command;
+  const result = spawnSync(exe, commandArgs, {
+    cwd: root,
+    stdio: 'inherit',
+    // Never use shell for gh/git — paths with spaces (installer .exe name) break on Windows.
+    shell: false,
+    ...options,
+  });
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
+function runCapture(command, commandArgs, captureOptions = {}) {
+  const exe = command === 'gh' ? ghExe : command;
+  return execFileSync(exe, commandArgs, {
+    cwd: root,
+    encoding: 'utf8',
+    shell: false,
+    ...captureOptions,
+  }).trim();
+}
+
+function assertGhReady() {
+  ghExe = resolveGhExecutable() ?? 'gh';
+  try {
+    runCapture('gh', ['--version']);
+  } catch {
+    console.error('GitHub CLI (gh) is required. Install: https://cli.github.com/');
+    console.error('On Windows: winget install --id GitHub.cli');
+    console.error('Then close and reopen the terminal (or Cursor) so PATH updates.');
+    process.exit(1);
+  }
+  try {
+    runCapture('gh', ['auth', 'status']);
+  } catch {
+    console.error('Run `gh auth login` before publishing.');
+    process.exit(1);
+  }
+}
+
+function findInstallerExe(version, productName) {
+  const releaseDir = join(root, 'release');
+  if (!existsSync(releaseDir)) {
+    return null;
+  }
+
+  const expected = `${productName} Setup ${version}.exe`;
+  const expectedPath = join(releaseDir, expected);
+  if (existsSync(expectedPath)) {
+    return expectedPath;
+  }
+
+  const matches = readdirSync(releaseDir).filter(
+    (name) =>
+      name.toLowerCase().endsWith('.exe') &&
+      name.includes('Setup') &&
+      name.includes(version),
+  );
+  if (matches.length === 1) {
+    return join(releaseDir, matches[0]);
+  }
+  return null;
+}
+
+function releaseExists(tag) {
+  const result = spawnSync(ghExe, ['release', 'view', tag], {
+    cwd: root,
+    stdio: 'ignore',
+    shell: false,
+  });
+  return result.status === 0;
+}
+
+function defaultReleaseNotes(version) {
+  return [
+    `## Personal Soundboard Player ${version}`,
+    '',
+    '- OBS / Streamlabs browser overlay (`/overlay/browser`)',
+    '- YouTube video clips with trim and dashboard play to overlay',
+    '- Audio clips with local ffplay playback',
+    '',
+    'See the repository README for setup and browser source configuration.',
+  ].join('\n');
+}
+
+function main() {
+  assertGhReady();
+
+  const pkg = readPackageJson();
+  const version = pkg.version;
+  const productName = pkg.build?.productName ?? 'Personal Soundboard Player';
+  const tag = `v${version}`;
+
+  if (!skipBuild) {
+    console.log('[publish] Building Windows installer...');
+    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    run(npm, ['run', 'installer:win']);
+  }
+
+  const installerPath = findInstallerExe(version, productName);
+  if (!installerPath) {
+    console.error(
+      `[publish] Installer not found in release/. Expected something like "${productName} Setup ${version}.exe".`,
+    );
+    console.error('Run `npm run installer:win` first, or use `npm run publish:win`.');
+    process.exit(1);
+  }
+
+  console.log(`[publish] Using installer: ${installerPath}`);
+
+  const notes =
+    process.env.RELEASE_NOTES?.trim() ||
+    (process.env.RELEASE_NOTES_FILE && existsSync(process.env.RELEASE_NOTES_FILE)
+      ? readFileSync(process.env.RELEASE_NOTES_FILE, 'utf8')
+      : defaultReleaseNotes(version));
+
+  const ghArgs = ['release'];
+
+  if (releaseExists(tag)) {
+    console.log(`[publish] Release ${tag} exists — uploading asset (--clobber).`);
+    ghArgs.push('upload', tag, installerPath, '--clobber');
+  } else {
+    console.log(`[publish] Creating release ${tag}...`);
+    ghArgs.push(
+      'create',
+      tag,
+      installerPath,
+      '--title',
+      tag,
+      '--notes',
+      notes,
+    );
+    if (draft) {
+      ghArgs.push('--draft');
+    }
+    const branch = runCapture('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+    if (branch === 'main' || branch === 'master') {
+      ghArgs.push('--target', branch);
+    }
+  }
+
+  run('gh', ghArgs);
+
+  try {
+    const url = runCapture('gh', ['release', 'view', tag, '--json', 'url', '-q', '.url']);
+    console.log(`[publish] Done: ${url}`);
+  } catch {
+    console.log('[publish] Done.');
+  }
+}
+
+main();

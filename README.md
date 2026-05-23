@@ -86,7 +86,30 @@ The installed Personal Soundboard Player app runs in the Windows tray and expose
 
 Use `npm run pack:win` to generate an unpacked build for quick smoke tests.
 
-`release/` is ignored by Git, so installer artifacts stay local unless you publish them manually as GitHub Releases assets.
+`release/` is ignored by Git, so installer artifacts are published via **GitHub Releases**, not committed to the repo.
+
+### Publish installer to GitHub Releases
+
+Requires [GitHub CLI](https://cli.github.com/) (`gh`) logged in (`gh auth login`).
+
+Build the NSIS installer and create/update the release for the current `package.json` version:
+
+```bash
+npm run publish:win
+```
+
+Upload only (installer already in `release/`):
+
+```bash
+npm run publish:release
+```
+
+Optional:
+
+- `npm run publish:win -- --draft` — draft release
+- `RELEASE_NOTES_FILE=./notes.md npm run publish:win` — custom release notes
+
+If the tag already exists (e.g. `v0.2.0`), the script uploads the `.exe` again with `--clobber`.
 
 ## Publishing Changes to GitHub
 
