@@ -22,6 +22,7 @@ export interface ClipDto {
   is_favorite: number;
   created_at: string;
   video_orientation?: VideoOrientation | null;
+  default_layout_area_id?: number | null;
 }
 
 export type ClipsSection =
@@ -103,6 +104,7 @@ export interface ClipDetail {
   video_width?: number | null;
   video_height?: number | null;
   video_orientation?: VideoOrientation | null;
+  default_layout_area_id?: number | null;
 }
 
 export interface CategorySuggestion {
@@ -315,7 +317,12 @@ export const api = {
     }),
   updateClipMetadata: (
     id: number,
-    body: { title: string; category: string; tags: string },
+    body: {
+      title: string;
+      category: string;
+      tags: string;
+      default_layout_area_id?: number | null;
+    },
   ) =>
     request<{ id: number; message: string }>(`/api/clips/${id}/metadata`, {
       method: 'PATCH',

@@ -31,8 +31,7 @@ function resolveLayoutAreaId(
     if (area) return area.id;
   }
 
-  const clipDefault = (clip as ClipRow & { default_layout_area_id?: number | null })
-    .default_layout_area_id;
+  const clipDefault = clip.default_layout_area_id;
   if (Number.isInteger(clipDefault) && clipDefault! > 0) {
     const area = getLayoutAreaById(db, clipDefault!);
     if (area) return area.id;

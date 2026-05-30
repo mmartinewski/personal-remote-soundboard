@@ -3,6 +3,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import type { Database as BetterDatabase } from 'better-sqlite3';
 import type { AppPaths } from '../config/paths.js';
 import { findOrCreateCategory } from '../db/repositories/categories.js';
+import { updateClipDefaultLayoutAreaId } from '../db/repositories/clips.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { cutToMp3, cutToMp4 } from './ffmpeg.js';
 import {
@@ -41,6 +42,7 @@ export interface NewClipInput {
   mimeType: string | undefined;
   clipType: ClipType;
   videoOrientation?: string;
+  defaultLayoutAreaId?: number | null;
 }
 
 function assertPathUnderDir(dir: string, filePath: string): void {
@@ -261,8 +263,9 @@ async function createVideoClipFromUpload(
           `INSERT INTO clips (
             title, youtube_url, start_time, end_time, category_id, tags,
             thumbnail_original_path, thumbnail_cropped_path, thumbnail_crop_meta,
-            audio_path, clip_type, video_path, volume, audio_normalize, audio_fade, is_favorite
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            audio_path, clip_type, video_path, default_layout_area_id,
+            volume, audio_normalize, audio_fade, is_favorite
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .run(
           input.title.trim(),
@@ -277,6 +280,7 @@ async function createVideoClipFromUpload(
           '',
           'video',
           tmpMp4,
+          input.defaultLayoutAreaId ?? null,
           clampVolume(input.volume),
           0,
           0,
@@ -337,6 +341,7 @@ export interface UpdateClipMetadataInput {
   title: string;
   categoryName: string;
   tags: string;
+  defaultLayoutAreaId?: number | null;
 }
 
 export function updateClipMetadata(
@@ -369,6 +374,9 @@ export function updateClipMetadata(
     tagsNorm,
     clipId,
   );
+  if (input.defaultLayoutAreaId !== undefined) {
+    updateClipDefaultLayoutAreaId(db, clipId, input.defaultLayoutAreaId);
+  }
 }
 
 export interface UpdateClipInput {
@@ -388,6 +396,7 @@ export interface UpdateClipInput {
   mimeType?: string | undefined;
   clipType: ClipType;
   videoOrientation?: string;
+  defaultLayoutAreaId?: number | null;
 }
 
 export async function updateClipFromUpload(
@@ -405,6 +414,7 @@ export async function updateClipFromUpload(
         thumbnail_crop_meta: string | null;
         audio_path: string;
         video_path: string | null;
+        default_layout_area_id: number | null;
       }
     | undefined;
   if (!row) {
@@ -560,6 +570,7 @@ async function updateVideoClipFromUpload(
     thumbnail_cropped_path: string;
     thumbnail_crop_meta: string | null;
     video_path: string | null;
+    default_layout_area_id: number | null;
   },
 ): Promise<void> {
   const { startSec, durationSec } = validateTimesAgainstStaging(
@@ -657,12 +668,16 @@ async function updateVideoClipFromUpload(
 
   const cat = findOrCreateCategory(db, input.categoryName);
   const tagsNorm = input.tags.trim().length ? input.tags.trim() : null;
+  const defaultLayoutAreaId =
+    input.defaultLayoutAreaId !== undefined
+      ? input.defaultLayoutAreaId
+      : row.default_layout_area_id;
   db.prepare(
     `UPDATE clips SET
       title = ?, youtube_url = ?, start_time = ?, end_time = ?,
       category_id = ?, tags = ?,
       thumbnail_original_path = ?, thumbnail_cropped_path = ?, thumbnail_crop_meta = ?,
-      video_path = ?, volume = ?, audio_normalize = ?, audio_fade = ?, is_favorite = ?
+      video_path = ?, default_layout_area_id = ?, volume = ?, audio_normalize = ?, audio_fade = ?, is_favorite = ?
     WHERE id = ?`,
   ).run(
     input.title.trim(),
@@ -675,6 +690,7 @@ async function updateVideoClipFromUpload(
     newCrop,
     cropMetaOut || null,
     finalMp4,
+    defaultLayoutAreaId,
     clampVolume(input.volume),
     0,
     0,

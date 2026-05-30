@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS clips (
     video_width INTEGER,
     video_height INTEGER,
     video_orientation TEXT,
+    default_layout_area_id INTEGER,
     volume INTEGER NOT NULL DEFAULT 75,
     audio_normalize INTEGER NOT NULL DEFAULT 0,
     audio_fade INTEGER NOT NULL DEFAULT 0,

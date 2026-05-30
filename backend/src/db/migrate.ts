@@ -56,6 +56,7 @@ export function migrate(db: BetterDatabase): void {
   ensureColumn(db, 'clips', 'video_width', 'INTEGER');
   ensureColumn(db, 'clips', 'video_height', 'INTEGER');
   ensureColumn(db, 'clips', 'video_orientation', 'TEXT');
+  ensureColumn(db, 'clips', 'default_layout_area_id', 'INTEGER');
   db.prepare(
     `UPDATE clips SET video_orientation = 'landscape' WHERE video_orientation = 'square'`,
   ).run();

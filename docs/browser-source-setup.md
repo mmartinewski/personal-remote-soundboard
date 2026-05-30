@@ -2,7 +2,7 @@
 
 Video and audio clips from Personal Soundboard Player play on a **transparent web overlay**, not through local `ffplay`. Add one or more **Browser Source** entries in OBS Studio or Streamlabs Desktop, then trigger clips from the dashboard.
 
-> **Planned:** A single fullscreen browser source with **layout areas** (positioning inside the page instead of multiple OBS sources) is specified in [overlay-layout-stage.md](./overlay-layout-stage.md). That feature is not implemented yet; the sections below describe the **current** multi-mode setup.
+> **Layout Stage (v0.8+):** Use a single **`?mode=stage`** browser source at canvas resolution for all video clips; positions come from **Layout areas** in the app. The multi-source setup below remains supported as **legacy**.
 
 ## Overlay URLs
 
@@ -10,12 +10,15 @@ Append `?mode=` to choose which clips that source receives. Use the same host an
 
 | Mode | Query | Receives |
 | --- | --- | --- |
+| **Stage** (recommended) | `?mode=stage` | All video clips; position via layout areas in the app |
 | **Audio** | `?mode=audio` | Audio clips only (soundboard) |
 | **Universal** | `?mode=universal` (default if omitted) | Audio + all video clips |
-| **Landscape** | `?mode=landscape` | Landscape video only |
-| **Portrait** | `?mode=portrait` | Portrait video only |
+| **Landscape** | `?mode=landscape` | Landscape video only *(legacy)* |
+| **Portrait** | `?mode=portrait` | Portrait video only *(legacy)* |
 
-**Recommended setup:** one Browser Source with `?mode=audio` for the soundboard, plus `?mode=landscape` and `?mode=portrait` for video layouts. Do **not** add `universal` if you already use landscape/portrait for video — otherwise those videos play on universal **and** on the orientation source (duplicate).
+**Recommended setup (v0.8+):** **`?mode=audio`** for the soundboard + **`?mode=stage`** for video at stream resolution (e.g. 1920×1080). Configure areas under **Layout areas** in the app.
+
+**Legacy setup:** separate **`?mode=landscape`** and **`?mode=portrait`** sources with manual OBS positioning. Do **not** add `universal` if you already use orientation-specific video sources (duplicate playback).
 
 | Environment | Audio | Universal | Landscape | Portrait |
 | --- | --- | --- | --- | --- |

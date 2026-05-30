@@ -1,6 +1,6 @@
 # Overlay Layout Stage — Technical Specification
 
-**Status:** **v0.8.0+** — stage mode, areas CRUD, dashboard play, and visual layout editor (Phase C). Per-clip defaults (Phase D) still planned.  
+**Status:** **v0.8.0+** — Layout Stage shipped through Phase D (stage mode, areas CRUD, visual editor, per-clip default area).  
 **Audience:** Implementers and reviewers.  
 **Related:** [browser-source-setup.md](./browser-source-setup.md) (current OBS workflow), [technical-specification.md](./technical-specification.md) (v1 app overview).
 
@@ -781,9 +781,9 @@ Examples of **zero capable clients**:
 
 ### Phase D — Defaults and deprecation
 
-- [ ] `clips.default_layout_area_id`
-- [ ] Metadata editor field
-- [ ] Mark orientation-based OBS modes as legacy in user docs
+- [x] `clips.default_layout_area_id`
+- [x] Metadata editor + clip form field
+- [x] Mark orientation-based OBS modes as legacy in user docs
 
 ---
 

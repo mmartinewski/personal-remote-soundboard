@@ -17,6 +17,7 @@ export interface ClipRow {
   video_width: number | null;
   video_height: number | null;
   video_orientation: string | null;
+  default_layout_area_id: number | null;
   volume: number;
   audio_normalize: number;
   audio_fade: number;
@@ -84,4 +85,15 @@ export function getClipById(
 export function deleteClipById(db: BetterDatabase, id: number): boolean {
   const result = db.prepare('DELETE FROM clips WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export function updateClipDefaultLayoutAreaId(
+  db: BetterDatabase,
+  clipId: number,
+  layoutAreaId: number | null,
+): void {
+  db.prepare('UPDATE clips SET default_layout_area_id = ? WHERE id = ?').run(
+    layoutAreaId,
+    clipId,
+  );
 }

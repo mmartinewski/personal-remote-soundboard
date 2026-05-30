@@ -7,18 +7,24 @@ import {
   type ClipsResponse,
   type LayoutAreaDto,
   type LayoutSettingsResponse,
-  type VideoOrientation,
 } from '../lib/api';
 import { getBrowserOverlayUrl } from '../lib/overlay';
 import { clampClipVolume, clipVolumeMax } from '../lib/volume';
 
-function resolveDefaultLayoutAreaId(
-  orientation: VideoOrientation | null | undefined,
+function resolvePlayLayoutAreaId(
+  clip: ClipDto,
   settings: LayoutSettingsResponse | null,
   areas: LayoutAreaDto[],
 ): number | undefined {
-  if (!settings || areas.length === 0) return areas[0]?.id;
-  const orient = orientation ?? 'landscape';
+  if (areas.length === 0) return undefined;
+  if (
+    clip.default_layout_area_id != null &&
+    areas.some((a) => a.id === clip.default_layout_area_id)
+  ) {
+    return clip.default_layout_area_id;
+  }
+  if (!settings) return areas[0]?.id;
+  const orient = clip.video_orientation ?? 'landscape';
   const fromSettings =
     orient === 'portrait'
       ? settings.layout_area_id_portrait
@@ -27,6 +33,14 @@ function resolveDefaultLayoutAreaId(
     return fromSettings;
   }
   return areas[0]?.id;
+}
+
+function layoutAreaName(
+  areaId: number | undefined,
+  areas: LayoutAreaDto[],
+): string | null {
+  if (areaId == null) return null;
+  return areas.find((a) => a.id === areaId)?.name ?? null;
 }
 
 type DashboardToastVariant = 'error' | 'success' | 'warning';
@@ -75,6 +89,9 @@ export default function DashboardPage() {
   const [metadataTagInput, setMetadataTagInput] = useState('');
   const [metadataCategorySuggestions, setMetadataCategorySuggestions] = useState<string[]>([]);
   const [metadataTagSuggestions, setMetadataTagSuggestions] = useState<string[]>([]);
+  const [metadataDefaultLayoutAreaId, setMetadataDefaultLayoutAreaId] = useState<number | ''>(
+    '',
+  );
   const [metadataSaving, setMetadataSaving] = useState(false);
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const metadataTitleRef = useRef<HTMLInputElement>(null);
@@ -86,6 +103,7 @@ export default function DashboardPage() {
   const [layoutAreas, setLayoutAreas] = useState<LayoutAreaDto[]>([]);
   const [layoutSettings, setLayoutSettings] = useState<LayoutSettingsResponse | null>(null);
   const [playAtFlyoutKey, setPlayAtFlyoutKey] = useState<string | null>(null);
+  const [editFlyoutKey, setEditFlyoutKey] = useState<string | null>(null);
   const [stageClientCount, setStageClientCount] = useState<number | null>(null);
 
   const showToast = useCallback((message: string, variant: DashboardToastVariant) => {
@@ -284,12 +302,7 @@ export default function DashboardPage() {
     try {
       const layoutAreaId =
         clip.clip_type === 'video'
-          ? (explicitLayoutAreaId ??
-            resolveDefaultLayoutAreaId(
-              clip.video_orientation,
-              layoutSettings,
-              layoutAreas,
-            ))
+          ? (explicitLayoutAreaId ?? resolvePlayLayoutAreaId(clip, layoutSettings, layoutAreas))
           : undefined;
       const result = await api.playClip(
         id,
@@ -322,6 +335,7 @@ export default function DashboardPage() {
     setClipToEditMetadata(null);
     setMetadataError(null);
     setMetadataTagInput('');
+    setMetadataDefaultLayoutAreaId('');
   }, [metadataSaving]);
 
   const closeCategoryRenameModal = useCallback(() => {
@@ -386,10 +400,17 @@ export default function DashboardPage() {
   const openMetadataEditor = (clip: ClipDto) => {
     setOpenMenuKey(null);
     setOpenCategoryMenuKey(null);
+    setPlayAtFlyoutKey(null);
+    setEditFlyoutKey(null);
     setClipToEditMetadata(clip);
     setMetadataTitle(clip.title);
     setMetadataCategory(clip.category.name ?? '');
     setMetadataTags(parseTags(clip.tags ?? ''));
+    setMetadataDefaultLayoutAreaId(
+      clip.clip_type === 'video' && clip.default_layout_area_id != null
+        ? clip.default_layout_area_id
+        : '',
+    );
     setMetadataTagInput('');
     setMetadataError(null);
   };
@@ -411,6 +432,12 @@ export default function DashboardPage() {
         title,
         category,
         tags: metadataTags.join(', '),
+        ...(clipToEditMetadata.clip_type === 'video'
+          ? {
+              default_layout_area_id:
+                metadataDefaultLayoutAreaId === '' ? null : metadataDefaultLayoutAreaId,
+            }
+          : {}),
       });
       setClipToEditMetadata(null);
       setMetadataTagInput('');
@@ -425,6 +452,7 @@ export default function DashboardPage() {
     metadataTitle,
     metadataCategory,
     metadataTags,
+    metadataDefaultLayoutAreaId,
     metadataSaving,
   ]);
 
@@ -801,7 +829,10 @@ export default function DashboardPage() {
                         setOpenCategoryMenuKey(null);
                         setOpenMenuKey((current) => {
                           const next = current === menuKey ? null : menuKey;
-                          if (next !== menuKey) setPlayAtFlyoutKey(null);
+                          if (next !== menuKey) {
+                            setPlayAtFlyoutKey(null);
+                            setEditFlyoutKey(null);
+                          }
                           return next;
                         });
                       }}
@@ -817,6 +848,7 @@ export default function DashboardPage() {
                           onClick={() => {
                             setOpenMenuKey(null);
                             setPlayAtFlyoutKey(null);
+                            setEditFlyoutKey(null);
                           }}
                           className="fixed inset-0 z-20 cursor-default bg-transparent"
                         />
@@ -828,6 +860,7 @@ export default function DashboardPage() {
                               aria-expanded={playAtFlyoutKey === menuKey}
                               onClick={(e) => {
                                 e.stopPropagation();
+                                setEditFlyoutKey(null);
                                 setPlayAtFlyoutKey((current) =>
                                   current === menuKey ? null : menuKey,
                                 );
@@ -847,8 +880,8 @@ export default function DashboardPage() {
                                 aria-label="Layout areas"
                               >
                                 {layoutAreas.map((area) => {
-                                  const defaultAreaId = resolveDefaultLayoutAreaId(
-                                    clip.video_orientation,
+                                  const defaultAreaId = resolvePlayLayoutAreaId(
+                                    clip,
                                     layoutSettings,
                                     layoutAreas,
                                   );
@@ -862,6 +895,7 @@ export default function DashboardPage() {
                                       onClick={() => {
                                         setOpenMenuKey(null);
                                         setPlayAtFlyoutKey(null);
+                                        setEditFlyoutKey(null);
                                         void handlePlay(clip, area.id);
                                       }}
                                       className={
@@ -877,22 +911,55 @@ export default function DashboardPage() {
                             ) : null}
                           </div>
                         ) : null}
-                        <button
-                          type="button"
-                          onClick={() => openMetadataEditor(clip)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-soft"
-                        >
-                          <span aria-hidden="true">📝</span>
-                          Edit metadata
-                        </button>
-                        <Link
-                          to={`/clips/${clip.id}/edit`}
-                          className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-surface-soft"
-                          onClick={() => setOpenMenuKey(null)}
-                        >
-                          <span aria-hidden="true">✎</span>
-                          Edit clip
-                        </Link>
+                        <div className="border-b border-surface">
+                          <button
+                            type="button"
+                            aria-expanded={editFlyoutKey === menuKey}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPlayAtFlyoutKey(null);
+                              setEditFlyoutKey((current) =>
+                                current === menuKey ? null : menuKey,
+                              );
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-soft"
+                          >
+                            <span aria-hidden="true">✎</span>
+                            <span className="flex-1">Edit</span>
+                            <span className="text-text-muted" aria-hidden="true">
+                              {editFlyoutKey === menuKey ? '▾' : '▸'}
+                            </span>
+                          </button>
+                          {editFlyoutKey === menuKey ? (
+                            <div
+                              className="border-t border-surface/50 bg-bg-soft py-1"
+                              role="menu"
+                              aria-label="Edit options"
+                            >
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => openMetadataEditor(clip)}
+                                className="flex w-full items-center gap-2 py-2 pl-8 pr-3 text-left text-sm hover:bg-surface-soft"
+                              >
+                                <span aria-hidden="true">📝</span>
+                                Metadata
+                              </button>
+                              <Link
+                                to={`/clips/${clip.id}/edit`}
+                                role="menuitem"
+                                className="flex items-center gap-2 py-2 pl-8 pr-3 text-sm hover:bg-surface-soft"
+                                onClick={() => {
+                                  setOpenMenuKey(null);
+                                  setEditFlyoutKey(null);
+                                }}
+                              >
+                                <span aria-hidden="true">🎬</span>
+                                Full editor
+                              </Link>
+                            </div>
+                          ) : null}
+                        </div>
                         <button
                           type="button"
                           onClick={() => void handleDownload(clip)}
@@ -951,6 +1018,15 @@ export default function DashboardPage() {
                       {clip.category.name ?? '(uncategorized)'}
                       {' · Browser overlay'}
                     </p>
+                    {clip.clip_type === 'video' && layoutAreas.length > 0 ? (
+                      <p className="mt-1 truncate text-[10px] text-text-muted">
+                        Play →{' '}
+                        {layoutAreaName(
+                          resolvePlayLayoutAreaId(clip, layoutSettings, layoutAreas),
+                          layoutAreas,
+                        ) ?? 'default area'}
+                      </p>
+                    ) : null}
                     <div className="mt-2">
                       <label
                         htmlFor={`clip-volume-${clip.id}`}
@@ -1096,6 +1172,35 @@ export default function DashboardPage() {
                   ))}
                 </datalist>
               </div>
+              {clipToEditMetadata.clip_type === 'video' && layoutAreas.length > 0 ? (
+                <div>
+                  <label htmlFor="metadata-layout-area" className="block text-sm font-medium">
+                    Default layout area
+                  </label>
+                  <select
+                    id="metadata-layout-area"
+                    value={metadataDefaultLayoutAreaId}
+                    onChange={(e) =>
+                      setMetadataDefaultLayoutAreaId(
+                        e.target.value === '' ? '' : Number(e.target.value),
+                      )
+                    }
+                    disabled={metadataSaving}
+                    className="mt-1 w-full rounded-md border border-surface bg-bg-soft px-3 py-2 text-sm outline-none focus:border-accent disabled:opacity-50"
+                  >
+                    <option value="">By orientation (global default)</option>
+                    {layoutAreas.map((area) => (
+                      <option key={area.id} value={area.id}>
+                        {area.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-text-muted">
+                    Used when you press ▶ on the dashboard. Override once via Play in… in the
+                    clip menu.
+                  </p>
+                </div>
+              ) : null}
               <div>
                 <label htmlFor="metadata-tags" className="block text-sm font-medium">
                   Tags

@@ -22,6 +22,10 @@ import {
 import { isValidProcessId } from '../services/stagingRegistry.js';
 import { isValidYoutubeUrl } from '../services/youtube.js';
 import { parseVideoOrientation } from '../services/videoOrientation.js';
+import {
+  assertLayoutAreaExists,
+  parseOptionalLayoutAreaId,
+} from '../db/repositories/layoutAreas.js';
 import { stageExistingAudio, stageExistingVideo } from './prefetch.js';
 
 interface SectionFavorites {
@@ -48,6 +52,7 @@ interface ClipDto {
   is_favorite: number;
   created_at: string;
   video_orientation?: 'landscape' | 'portrait' | null;
+  default_layout_area_id?: number | null;
 }
 
 export function clipsRouter(): Router {
@@ -81,6 +86,8 @@ export function clipsRouter(): Router {
               ? 'portrait'
               : 'landscape'
             : undefined,
+        default_layout_area_id:
+          row.clip_type === 'video' ? row.default_layout_area_id : undefined,
       };
 
       if (row.is_favorite === 1) favorites.push(dto);
@@ -183,6 +190,7 @@ export function clipsRouter(): Router {
           const isFavorite = favRaw === '1' || favRaw === 'true' ? 1 : 0;
           const clipType = parseClipTypeField(field(body, 'clip_type'));
           const videoOrientation = parseVideoOrientationField(body, clipType);
+          const defaultLayoutAreaId = parseClipDefaultLayoutAreaField(db, body, clipType);
 
           if (!title) {
             throw new HttpError(400, 'Title is required.', 'missing_title');
@@ -214,6 +222,7 @@ export function clipsRouter(): Router {
             mimeType: file.mimetype,
             clipType,
             videoOrientation,
+            defaultLayoutAreaId,
           });
           res.status(201).json({ id, message: 'Clip created.' });
         } catch (err) {
@@ -312,6 +321,8 @@ export function clipsRouter(): Router {
         video_width: row.video_width,
         video_height: row.video_height,
         video_orientation: row.video_orientation,
+        default_layout_area_id:
+          row.clip_type === 'video' ? row.default_layout_area_id : undefined,
       });
     } catch (err) {
       next(err);
@@ -341,6 +352,7 @@ export function clipsRouter(): Router {
           const isFavorite = favRaw === '1' || favRaw === 'true' ? 1 : 0;
           const clipType = parseClipTypeField(field(body, 'clip_type'));
           const videoOrientation = parseVideoOrientationField(body, clipType);
+          const defaultLayoutAreaId = parseClipDefaultLayoutAreaField(db, body, clipType);
           const file = req.file;
 
           if (!title) {
@@ -373,6 +385,7 @@ export function clipsRouter(): Router {
             mimeType: file?.mimetype,
             clipType,
             videoOrientation,
+            defaultLayoutAreaId,
           });
           res.json({ id, message: 'Clip updated.' });
         } catch (err) {
@@ -386,15 +399,30 @@ export function clipsRouter(): Router {
     try {
       const id = parseClipId(req.params.id);
       const db = getDb(paths.databaseFile);
+      const row = getClipById(db, id);
+      if (!row) {
+        throw new HttpError(404, 'Clip not found.', 'clip_not_found');
+      }
       const body = (req.body ?? {}) as {
         title?: unknown;
         category?: unknown;
         tags?: unknown;
+        default_layout_area_id?: unknown;
       };
       const title = typeof body.title === 'string' ? body.title.trim() : '';
       const category = typeof body.category === 'string' ? body.category.trim() : '';
       const tags = typeof body.tags === 'string' ? body.tags : '';
-      updateClipMetadata(db, id, { title, categoryName: category, tags });
+      const metadataInput: Parameters<typeof updateClipMetadata>[2] = {
+        title,
+        categoryName: category,
+        tags,
+      };
+      if (row.clip_type === 'video' && 'default_layout_area_id' in body) {
+        const areaId = parseOptionalLayoutAreaId(body.default_layout_area_id);
+        if (areaId != null) assertLayoutAreaExists(db, areaId);
+        metadataInput.defaultLayoutAreaId = areaId;
+      }
+      updateClipMetadata(db, id, metadataInput);
       res.json({ id, message: 'Metadata updated.' });
     } catch (err) {
       next(err);
@@ -569,6 +597,18 @@ function parseVideoOrientationField(
     throw new HttpError(400, 'Invalid video orientation.', 'invalid_video_orientation');
   }
   return parsed;
+}
+
+function parseClipDefaultLayoutAreaField(
+  db: ReturnType<typeof getDb>,
+  body: Record<string, unknown>,
+  clipType: 'audio' | 'video',
+): number | null | undefined {
+  if (clipType !== 'video') return undefined;
+  if (!('default_layout_area_id' in body)) return undefined;
+  const areaId = parseOptionalLayoutAreaId(body.default_layout_area_id);
+  if (areaId != null) assertLayoutAreaExists(db, areaId);
+  return areaId;
 }
 
 function isValidSourceUrl(value: string): boolean {

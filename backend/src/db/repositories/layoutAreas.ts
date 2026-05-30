@@ -219,6 +219,9 @@ export function deleteLayoutArea(db: BetterDatabase, id: number): void {
       db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
     }
   }
+  db.prepare('UPDATE clips SET default_layout_area_id = NULL WHERE default_layout_area_id = ?').run(
+    id,
+  );
   db.prepare('DELETE FROM layout_areas WHERE id = ?').run(id);
 }
 
@@ -297,6 +300,21 @@ function rowToDto(row: LayoutAreaRow): LayoutAreaDto {
     is_fullscreen: row.is_fullscreen,
     created_at: row.created_at,
   };
+}
+
+export function parseOptionalLayoutAreaId(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id < 1) {
+    throw new HttpError(400, 'Invalid layout area ID.', 'invalid_layout_area_id');
+  }
+  return id;
+}
+
+export function assertLayoutAreaExists(db: BetterDatabase, id: number): void {
+  if (!getLayoutAreaById(db, id)) {
+    throw new HttpError(404, 'Layout area not found.', 'layout_area_not_found');
+  }
 }
 
 export function getLayoutAreaIdSetting(

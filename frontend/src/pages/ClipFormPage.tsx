@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, type PrefetchResponse } from '../lib/api';
+import { api, type LayoutAreaDto, type PrefetchResponse } from '../lib/api';
 import { getBrowserOverlayUrl } from '../lib/overlay';
 import type { VideoOrientation } from '../lib/api';
 import { normalizeVideoOrientation, videoOrientationLabel, type BrowserSourceMode } from '../lib/videoOrientation';
 import VideoRangeTrimmer from '../components/VideoRangeTrimmer';
 import { isValidYoutubeUrl } from '../lib/youtube';
 import { isValidTimeString, secondsToTimeString, timeStringToSeconds } from '../lib/time';
+import { bindDocumentPointerDrag } from '../lib/documentPointerDrag';
+import { effectiveVolumeToElement } from '../lib/volume';
 
 type AudioSourceType = 'youtube' | 'mp3-url' | 'local-file';
 type VideoSourceType = 'youtube' | 'local-file';
@@ -15,8 +17,15 @@ type EditorKind = 'audio' | 'video';
 const BROWSER_SOURCE_MODES: ReadonlyArray<[BrowserSourceMode, string]> = [
   ['audio', 'Audio (soundboard)'],
   ['universal', 'Universal (audio + all videos)'],
-  ['landscape', 'Landscape video'],
-  ['portrait', 'Portrait video'],
+  ['landscape', 'Landscape video (legacy)'],
+  ['portrait', 'Portrait video (legacy)'],
+];
+
+const BROWSER_SOURCE_MODES_VIDEO: ReadonlyArray<[BrowserSourceMode, string]> = [
+  ['stage', 'Stage (recommended — layout areas)'],
+  ['landscape', 'Landscape (legacy)'],
+  ['portrait', 'Portrait (legacy)'],
+  ['universal', 'Universal (legacy)'],
 ];
 
 function BrowserSourceInstructionsCard({
@@ -29,7 +38,7 @@ function BrowserSourceInstructionsCard({
   const modes =
     editorKind === 'audio'
       ? BROWSER_SOURCE_MODES.filter(([mode]) => mode === 'audio' || mode === 'universal')
-      : BROWSER_SOURCE_MODES;
+      : BROWSER_SOURCE_MODES_VIDEO;
 
   return (
     <div className="rounded-md border border-sky-500/40 bg-sky-500/10 p-4">
@@ -310,6 +319,8 @@ function WaveformTrimmer({
   endTime,
   onStartChange,
   onEndChange,
+  playheadSec = null,
+  onTrimRelease,
 }: {
   audioUrl: string;
   durationSeconds: number | null;
@@ -317,9 +328,16 @@ function WaveformTrimmer({
   endTime: string;
   onStartChange: (value: string) => void;
   onEndChange: (value: string) => void;
+  playheadSec?: number | null;
+  onTrimRelease?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<'start' | 'end' | null>(null);
+  const docDragCleanupRef = useRef<(() => void) | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
+  const finishDragRef = useRef<() => void>(() => {});
+  const handleDragMoveRef = useRef<(clientX: number) => void>(() => {});
+  const [scrubPlayheadSec, setScrubPlayheadSec] = useState<number | null>(null);
   const [peaks, setPeaks] = useState<number[]>([]);
   const [canvasWidth, setCanvasWidth] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -330,6 +348,15 @@ function WaveformTrimmer({
   const endSec = isValidTimeString(endTime)
     ? timeStringToSeconds(endTime)
     : Math.min(duration, MAX_CLIP_SEC);
+
+  const effectivePlayheadSec = scrubPlayheadSec ?? playheadSec;
+
+  useEffect(() => {
+    return () => {
+      docDragCleanupRef.current?.();
+      docDragCleanupRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -428,7 +455,23 @@ function WaveformTrimmer({
       ctx.arc(x, mid, 7, 0, Math.PI * 2);
       ctx.fill();
     }
-  }, [peaks, canvasWidth, duration, startSec, endSec]);
+
+    if (effectivePlayheadSec !== null && duration > 0) {
+      const playheadX = clampNumber((effectivePlayheadSec / duration) * cssWidth, 0, cssWidth);
+      ctx.fillStyle = '#fcd34d';
+      ctx.shadowColor = 'rgba(252, 211, 77, 0.85)';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(playheadX - 1, 0, 2, cssHeight);
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(playheadX, 0);
+      ctx.lineTo(playheadX + 5, 5);
+      ctx.lineTo(playheadX - 5, 5);
+      ctx.closePath();
+      ctx.fillStyle = '#fcd34d';
+      ctx.fill();
+    }
+  }, [peaks, canvasWidth, duration, startSec, endSec, effectivePlayheadSec]);
 
   const xToSeconds = (clientX: number): number => {
     const canvas = canvasRef.current;
@@ -440,7 +483,11 @@ function WaveformTrimmer({
   const applyStart = (value: number) => {
     const maxStart = Math.max(0, endSec - MIN_CLIP_SEC);
     const minStart = Math.max(0, endSec - MAX_CLIP_SEC);
-    onStartChange(secondsToTimeString(clampNumber(value, minStart, maxStart)));
+    const clamped = clampNumber(value, minStart, maxStart);
+    if (dragRef.current === 'start' && duration > 0) {
+      setScrubPlayheadSec(clamped);
+    }
+    onStartChange(secondsToTimeString(clamped));
   };
 
   const applyEnd = (value: number) => {
@@ -449,8 +496,32 @@ function WaveformTrimmer({
     onEndChange(secondsToTimeString(clampNumber(value, minEnd, maxEnd)));
   };
 
+  handleDragMoveRef.current = (clientX: number) => {
+    if (!dragRef.current) return;
+    const seconds = xToSeconds(clientX);
+    if (dragRef.current === 'start') applyStart(seconds);
+    else applyEnd(seconds);
+  };
+
+  finishDragRef.current = () => {
+    const canvas = canvasRef.current;
+    const pointerId = activePointerIdRef.current;
+    if (canvas && pointerId !== null && canvas.hasPointerCapture(pointerId)) {
+      canvas.releasePointerCapture(pointerId);
+    }
+    activePointerIdRef.current = null;
+
+    const wasDragging = dragRef.current !== null;
+    dragRef.current = null;
+    setScrubPlayheadSec(null);
+    if (wasDragging) {
+      onTrimRelease?.();
+    }
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (duration <= 0) return;
+    e.preventDefault();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -458,24 +529,25 @@ function WaveformTrimmer({
     const startX = (startSec / duration) * rect.width;
     const endX = (endSec / duration) * rect.width;
     dragRef.current = Math.abs(x - startX) <= Math.abs(x - endX) ? 'start' : 'end';
-    canvas.setPointerCapture(e.pointerId);
+
+    docDragCleanupRef.current?.();
+    activePointerIdRef.current = e.pointerId;
+    docDragCleanupRef.current = bindDocumentPointerDrag({
+      pointerId: e.pointerId,
+      onMove: (clientX) => handleDragMoveRef.current(clientX),
+      onEnd: () => {
+        docDragCleanupRef.current = null;
+        finishDragRef.current();
+      },
+    });
+
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {
+      /* document listeners handle the drag if capture fails */
+    }
     if (dragRef.current === 'start') applyStart(xToSeconds(e.clientX));
     else applyEnd(xToSeconds(e.clientX));
-  };
-
-  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!dragRef.current) return;
-    const seconds = xToSeconds(e.clientX);
-    if (dragRef.current === 'start') applyStart(seconds);
-    else applyEnd(seconds);
-  };
-
-  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (canvas?.hasPointerCapture(e.pointerId)) {
-      canvas.releasePointerCapture(e.pointerId);
-    }
-    dragRef.current = null;
   };
 
   if (!audioUrl) return null;
@@ -490,11 +562,8 @@ function WaveformTrimmer({
       </div>
       <canvas
         ref={canvasRef}
-        className="mt-3 h-32 w-full touch-none rounded-md border border-surface bg-bg"
+        className="mt-3 h-32 w-full cursor-text touch-none rounded-md border border-surface bg-bg"
         onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
       />
       {loading && <p className="mt-2 text-xs text-text-muted">Generating waveform...</p>}
       {waveError && <p className="mt-2 text-xs text-red-300">{waveError}</p>}
@@ -668,13 +737,16 @@ export default function ClipFormPage({ mode }: Props) {
   const clipId = mode === 'edit' ? Number(params.id) : NaN;
   const previewAudioRef = useRef<HTMLAudioElement>(null);
   const loopTrimPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewSessionActiveRef = useRef(false);
   const [videoPreviewNonce, setVideoPreviewNonce] = useState(0);
   const [videoPreviewCutUrl, setVideoPreviewCutUrl] = useState<string | null>(null);
-  const [videoPreviewLoop, setVideoPreviewLoop] = useState(false);
+  const [audioPlayheadSec, setAudioPlayheadSec] = useState<number | null>(null);
   const [videoOrientation, setVideoOrientation] = useState<VideoOrientation>('landscape');
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(
     null,
   );
+  const [layoutAreas, setLayoutAreas] = useState<LayoutAreaDto[]>([]);
+  const [defaultLayoutAreaId, setDefaultLayoutAreaId] = useState<number | ''>('');
 
   const [editorKind, setEditorKind] = useState<EditorKind>('audio');
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -708,6 +780,8 @@ export default function ClipFormPage({ mode }: Props) {
   const [loadingClip, setLoadingClip] = useState(mode === 'edit');
   const [prefetching, setPrefetching] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [thumbnailDragActive, setThumbnailDragActive] = useState(false);
   const [loadingDroppedThumbnail, setLoadingDroppedThumbnail] = useState(false);
@@ -801,18 +875,43 @@ export default function ClipFormPage({ mode }: Props) {
   };
 
   const stopClientPreview = useCallback(() => {
+    previewSessionActiveRef.current = false;
     const audio = previewAudioRef.current;
     if (audio) {
       audio.pause();
+      audio.loop = false;
       audio.removeAttribute('src');
       audio.load();
     }
     setPreviewing(false);
+    setAudioPlayheadSec(null);
   }, []);
 
   const stopVideoPreview = useCallback(() => {
+    previewSessionActiveRef.current = false;
     setPreviewing(false);
   }, []);
+
+  const pauseVideoPreview = useCallback(() => {
+    setVideoPreviewCutUrl(null);
+    setPreviewing(false);
+  }, []);
+
+  useEffect(() => {
+    if (editorKind !== 'video') return;
+    let cancelled = false;
+    void api
+      .getLayoutAreas()
+      .then((res) => {
+        if (!cancelled) setLayoutAreas(res.areas);
+      })
+      .catch(() => {
+        if (!cancelled) setLayoutAreas([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editorKind]);
 
   useEffect(() => {
     if (mode !== 'edit' || !Number.isInteger(clipId) || clipId < 1) return;
@@ -851,6 +950,11 @@ export default function ClipFormPage({ mode }: Props) {
         setEndTime(c.end_time);
         if (isVideoClip && c.video_orientation) {
           setVideoOrientation(normalizeVideoOrientation(c.video_orientation));
+        }
+        if (isVideoClip) {
+          setDefaultLayoutAreaId(
+            c.default_layout_area_id != null ? c.default_layout_area_id : '',
+          );
         }
         if (isVideoClip && c.video_width && c.video_height) {
           setVideoDimensions({ width: c.video_width, height: c.video_height });
@@ -912,15 +1016,53 @@ export default function ClipFormPage({ mode }: Props) {
     const audio = previewAudioRef.current;
     if (!audio) return;
 
-    const resetPreview = () => setPreviewing(false);
-    audio.addEventListener('ended', resetPreview);
-    audio.addEventListener('error', resetPreview);
+    const onEnded = () => {
+      if (!audio.loop) {
+        setPreviewing(false);
+        setAudioPlayheadSec(null);
+      }
+    };
+    const onError = () => {
+      previewSessionActiveRef.current = false;
+      setPreviewing(false);
+      setAudioPlayheadSec(null);
+    };
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onError);
     return () => {
-      audio.removeEventListener('ended', resetPreview);
-      audio.removeEventListener('error', resetPreview);
-      audio.pause();
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
     };
   }, []);
+
+  useEffect(() => {
+    if (!previewing || editorKind !== 'audio') {
+      setAudioPlayheadSec(null);
+      return;
+    }
+
+    let raf = 0;
+    const tick = () => {
+      const audio = previewAudioRef.current;
+      const start = isValidTimeString(startTime) ? timeStringToSeconds(startTime) : 0;
+      if (audio && previewing) {
+        setAudioPlayheadSec(start + audio.currentTime);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+    };
+  }, [previewing, editorKind, startTime]);
+
+  useEffect(() => {
+    if (!previewing || editorKind !== 'audio') return;
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    audio.volume = effectiveVolumeToElement(volume, 100);
+  }, [previewing, editorKind, volume]);
 
   const refreshYoutubeSession = useCallback(async () => {
     try {
@@ -1095,8 +1237,45 @@ export default function ClipFormPage({ mode }: Props) {
     }
   };
 
+  const startAudioSegmentPreview = useCallback(async () => {
+    if (!processId || !audioUrl || !timesOk || !clipLenOk || !durationOk) return;
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    setError(null);
+    previewSessionActiveRef.current = true;
+    audio.pause();
+    audio.volume = effectiveVolumeToElement(volume, 100);
+    audio.loop = true;
+    audio.src = `${api.getStagingPreviewUrl({
+      process_id: processId,
+      start_time: startTime.trim(),
+      end_time: endTime.trim(),
+      audio_normalize: true,
+    })}&_=${Date.now()}`;
+    audio.load();
+    setPreviewing(true);
+    try {
+      await audio.play();
+    } catch (e) {
+      previewSessionActiveRef.current = false;
+      setPreviewing(false);
+      setAudioPlayheadSec(null);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [
+    processId,
+    audioUrl,
+    timesOk,
+    clipLenOk,
+    durationOk,
+    startTime,
+    endTime,
+    volume,
+  ]);
+
   const startVideoSegmentPreview = useCallback(() => {
     if (!processId || !videoUrl || !timesOk || !clipLenOk || !durationOk) return;
+    previewSessionActiveRef.current = true;
     setPreviewing(true);
     setVideoPreviewCutUrl(
       `${api.getStagingVideoPreviewUrl({
@@ -1109,15 +1288,19 @@ export default function ClipFormPage({ mode }: Props) {
   }, [processId, videoUrl, timesOk, clipLenOk, durationOk, startTime, endTime]);
 
   const scheduleLoopPreviewAfterTrim = useCallback(() => {
-    if (!videoPreviewLoop) return;
+    if (!previewSessionActiveRef.current) return;
     if (loopTrimPreviewTimerRef.current) {
       clearTimeout(loopTrimPreviewTimerRef.current);
     }
     loopTrimPreviewTimerRef.current = setTimeout(() => {
       loopTrimPreviewTimerRef.current = null;
-      startVideoSegmentPreview();
+      if (editorKind === 'video') {
+        startVideoSegmentPreview();
+      } else {
+        void startAudioSegmentPreview();
+      }
     }, 350);
-  }, [videoPreviewLoop, startVideoSegmentPreview]);
+  }, [editorKind, startVideoSegmentPreview, startAudioSegmentPreview]);
 
   useEffect(() => {
     return () => {
@@ -1143,21 +1326,14 @@ export default function ClipFormPage({ mode }: Props) {
         return;
       }
       if (!audioUrl) return;
-      const audio = previewAudioRef.current;
-      if (!audio) return;
-      audio.pause();
-      audio.volume = clampNumber(volume / 100, 0, 1);
-      audio.src = api.getStagingPreviewUrl({
-        process_id: processId,
-        start_time: startTime.trim(),
-        end_time: endTime.trim(),
-        audio_normalize: true,
-      });
-      audio.load();
-      setPreviewing(true);
-      await audio.play();
+      if (previewing) {
+        stopClientPreview();
+        return;
+      }
+      await startAudioSegmentPreview();
     } catch (e) {
       setPreviewing(false);
+      setAudioPlayheadSec(null);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
@@ -1217,6 +1393,10 @@ export default function ClipFormPage({ mode }: Props) {
     fd.append('clip_type', editorKind);
     if (editorKind === 'video') {
       fd.append('video_orientation', videoOrientation);
+      fd.append(
+        'default_layout_area_id',
+        defaultLayoutAreaId === '' ? '' : String(defaultLayoutAreaId),
+      );
     }
     if (crop) {
       fd.append('thumbnail_crop_meta', JSON.stringify(crop));
@@ -1271,6 +1451,21 @@ export default function ClipFormPage({ mode }: Props) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const confirmDeleteClip = async () => {
+    if (mode !== 'edit' || !Number.isInteger(clipId) || clipId < 1) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deleteClip(clipId);
+      navigate('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setShowDeleteConfirm(false);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1578,16 +1773,13 @@ export default function ClipFormPage({ mode }: Props) {
               videoUrl={videoUrl}
               previewNonce={videoPreviewNonce}
               previewCutUrl={videoPreviewCutUrl}
-              previewLoop={videoPreviewLoop}
+              previewVolume={volume}
               durationSeconds={durationSeconds}
               startTime={startTime}
               endTime={endTime}
               onStartChange={setStartTime}
               onEndChange={setEndTime}
-              onPreviewEnd={() => {
-                setVideoPreviewCutUrl(null);
-                stopVideoPreview();
-              }}
+              onPreviewEnd={pauseVideoPreview}
               onPreviewError={(message) => {
                 setVideoPreviewCutUrl(null);
                 setError(message);
@@ -1603,8 +1795,39 @@ export default function ClipFormPage({ mode }: Props) {
               endTime={endTime}
               onStartChange={setStartTime}
               onEndChange={setEndTime}
+              playheadSec={audioPlayheadSec}
+              onTrimRelease={scheduleLoopPreviewAfterTrim}
             />
           )}
+          <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={
+                !processId ||
+                !timesOk ||
+                !clipLenOk ||
+                !durationOk ||
+                (editorKind === 'video' ? !videoUrl : !audioUrl)
+              }
+              onClick={() => void handleClientPreview()}
+              className="rounded-md border border-surface bg-bg px-4 py-2 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {previewing ? 'Stop preview' : 'Preview'}
+            </button>
+            {timesOk && (
+              <span className="text-xs text-text-muted">
+                Segment duration: {clipLen.toFixed(3)}s
+                {!clipLenOk && ` - maximum ${MAX_CLIP_SEC}s`}
+                {!durationOk && ' - outside the downloaded duration'}
+              </span>
+            )}
+            {(!timesOk || !isValidTimeString(startTime) || !isValidTimeString(endTime)) &&
+              (startTime.length > 0 || endTime.length > 0) && (
+                <span className="text-xs text-red-300">
+                  Use the HH:MM:SS.mmm format (ex.: 00:01:23.456).
+                </span>
+              )}
+          </div>
           <div className="sm:col-span-2">
             <label htmlFor="volume" className="block text-sm font-medium">
               Volume: {volume}
@@ -1674,46 +1897,32 @@ export default function ClipFormPage({ mode }: Props) {
               </span>
             </p>
           ) : null}
-          <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={
-                !processId ||
-                !timesOk ||
-                !clipLenOk ||
-                !durationOk ||
-                (editorKind === 'video' ? !videoUrl : !audioUrl)
-              }
-              onClick={() => void handleClientPreview()}
-              className="rounded-md border border-surface bg-bg px-4 py-2 text-sm font-medium hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {editorKind === 'video' && previewing ? 'Stop preview' : 'Preview'}
-            </button>
-            {editorKind === 'video' ? (
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-text-muted">
-                <input
-                  type="checkbox"
-                  checked={videoPreviewLoop}
-                  onChange={(e) => setVideoPreviewLoop(e.target.checked)}
-                  className="accent-accent"
-                />
-                Loop preview
+          {editorKind === 'video' && layoutAreas.length > 0 ? (
+            <p className="sm:col-span-2">
+              <label htmlFor="default-layout-area" className="block text-sm font-medium">
+                Default layout area
               </label>
-            ) : null}
-            {timesOk && (
-              <span className="text-xs text-text-muted">
-                Segment duration: {clipLen.toFixed(3)}s
-                {!clipLenOk && ` - maximum ${MAX_CLIP_SEC}s`}
-                {!durationOk && ' - outside the downloaded duration'}
+              <select
+                id="default-layout-area"
+                value={defaultLayoutAreaId}
+                onChange={(e) =>
+                  setDefaultLayoutAreaId(e.target.value === '' ? '' : Number(e.target.value))
+                }
+                className="mt-1 rounded-md border border-surface bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              >
+                <option value="">By orientation (global default)</option>
+                {layoutAreas.map((area) => (
+                  <option key={area.id} value={area.id}>
+                    {area.name}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-text-muted">
+                Used when you play this clip from the dashboard (▶). Use Play in… in the clip
+                menu for a one-time override.
               </span>
-            )}
-            {(!timesOk || !isValidTimeString(startTime) || !isValidTimeString(endTime)) &&
-              (startTime.length > 0 || endTime.length > 0) && (
-                <span className="text-xs text-red-300">
-                  Use the HH:MM:SS.mmm format (ex.: 00:01:23.456).
-                </span>
-              )}
-          </div>
+            </p>
+          ) : null}
         </div>
 
         <div
@@ -1895,10 +2104,10 @@ export default function ClipFormPage({ mode }: Props) {
           </label>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            disabled={saving || !(mode === 'create' ? canSaveCreate : canSaveEdit)}
+            disabled={saving || deleting || !(mode === 'create' ? canSaveCreate : canSaveEdit)}
             className="rounded-md bg-accent px-5 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saving ? 'Saving...' : 'Save clip'}
@@ -1906,12 +2115,67 @@ export default function ClipFormPage({ mode }: Props) {
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="rounded-md border border-surface px-5 py-2 text-sm hover:border-accent"
+            disabled={saving || deleting}
+            className="rounded-md border border-surface px-5 py-2 text-sm hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>
+          {mode === 'edit' ? (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={saving || deleting}
+              className="ml-auto rounded-md border border-red-500/40 px-5 py-2 text-sm font-medium text-red-200 hover:border-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Delete clip
+            </button>
+          ) : null}
         </div>
       </form>
+
+      {showDeleteConfirm && mode === 'edit' ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-delete-clip-title"
+          onClick={() => {
+            if (!deleting) setShowDeleteConfirm(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        >
+          <div
+            className="w-full max-w-sm rounded-lg border border-surface bg-bg p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="edit-delete-clip-title" className="text-lg font-semibold">
+              Delete clip?
+            </h2>
+            <p className="mt-2 text-sm text-text-muted">
+              This action will remove{' '}
+              <strong className="text-text">{title.trim() || 'this clip'}</strong> and its media
+              and thumbnail files. This cannot be undone.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="rounded-md border border-surface px-4 py-2 text-sm hover:border-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDeleteClip()}
+                disabled={deleting}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
