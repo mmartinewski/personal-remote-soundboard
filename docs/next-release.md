@@ -97,7 +97,7 @@ npm run installer:win
 Artefato esperado em `release/`, por exemplo:
 
 ```text
-release/Personal Soundboard Player Setup 0.1.0.exe
+release/Stream Media Board Setup 0.9.0.exe
 ```
 
 Smoke test rápido sem instalador:

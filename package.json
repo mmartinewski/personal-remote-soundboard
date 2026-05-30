@@ -1,8 +1,8 @@
 {
-  "name": "personal-soundboard-player",
+  "name": "stream-media-board",
   "private": true,
-  "version": "0.8.3",
-  "description": "Local YouTube clip soundboard with server-side playback and a LAN-controllable UI.",
+  "version": "0.9.0",
+  "description": "LAN clip dashboard and browser overlay for streaming — YouTube audio and video clips for any app with a browser source.",
   "main": "desktop/main.cjs",
   "workspaces": [
     "backend",
@@ -27,7 +27,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/mmartinewski/personal-remote-soundboard.git"
+    "url": "https://github.com/mmartinewski/stream-media-board.git"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
@@ -43,7 +43,7 @@
   },
   "build": {
     "appId": "com.mmartinewski.personal-soundboard-player",
-    "productName": "Personal Soundboard Player",
+    "productName": "Stream Media Board",
     "asar": false,
     "npmRebuild": false,
     "directories": {
@@ -77,11 +77,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Personal Soundboard Player"
+      "shortcutName": "Stream Media Board"
     },
     "protocols": [
       {
-        "name": "Personal Soundboard Player",
+        "name": "Stream Media Board",
         "schemes": ["soundboard"]
       }
     ]

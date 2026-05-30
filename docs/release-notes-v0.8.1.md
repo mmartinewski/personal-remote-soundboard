@@ -26,4 +26,4 @@ Install over v0.8.0. No OBS URL changes. Refresh the dashboard after updating if
 ### Still planned (Layout Stage)
 
 - Per-clip default layout area in the clip editor (Phase D).
-- Further polish from [overlay-layout-stage.md](https://github.com/mmartinewski/personal-remote-soundboard/blob/main/docs/overlay-layout-stage.md).
+- Further polish from [overlay-layout-stage.md](https://github.com/mmartinewski/stream-media-board/blob/main/docs/overlay-layout-stage.md).

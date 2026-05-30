@@ -1,6 +1,6 @@
-# Technical Requirements Specification: YouTube Clip Soundboard
+# Technical Requirements Specification: Stream Media Board
 
-This document describes the v1 behavior for a local Node.js soundboard that creates audio clips from YouTube videos, stores metadata and media locally, and plays audio directly on the machine where the backend is running. The web UI can be controlled remotely from another device on the same LAN.
+This document describes the v1 behavior for a local Node.js app that creates audio and video clips from YouTube (or local files), stores metadata and media locally, and plays clips on a **browser overlay** in streaming software. The web dashboard can be controlled from another device on the same LAN.
 
 ## 1. Technology Stack
 

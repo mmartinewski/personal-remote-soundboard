@@ -24,7 +24,7 @@ This release introduces **Layout Stage**: a single fullscreen OBS browser source
 
 Example (production): `http://localhost:3847/overlay/browser?mode=stage`
 
-Full spec and roadmap: [docs/overlay-layout-stage.md](https://github.com/mmartinewski/personal-remote-soundboard/blob/main/docs/overlay-layout-stage.md)
+Full spec and roadmap: [docs/overlay-layout-stage.md](https://github.com/mmartinewski/stream-media-board/blob/main/docs/overlay-layout-stage.md)
 
 ### API
 
@@ -37,7 +37,7 @@ Full spec and roadmap: [docs/overlay-layout-stage.md](https://github.com/mmartin
 
 ### Documentation
 
-- New: [overlay-layout-stage.md](https://github.com/mmartinewski/personal-remote-soundboard/blob/main/docs/overlay-layout-stage.md)
+- New: [overlay-layout-stage.md](https://github.com/mmartinewski/stream-media-board/blob/main/docs/overlay-layout-stage.md)
 - Updated: browser-source-setup, technical-specification, README
 
 ### Upgrade from v0.7.0

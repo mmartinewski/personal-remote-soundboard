@@ -25,7 +25,7 @@ Each overlay connects to SSE at `/api/browser-source/events?mode=...` and only p
 
 The **Video clip** form lists all three URLs with **Copy** buttons.
 
-Full guide: [docs/browser-source-setup.md](https://github.com/mmartinewski/personal-remote-soundboard/blob/main/docs/browser-source-setup.md)
+Full guide: [docs/browser-source-setup.md](https://github.com/mmartinewski/stream-media-board/blob/main/docs/browser-source-setup.md)
 
 ### Video orientation & dimensions
 

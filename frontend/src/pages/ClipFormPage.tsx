@@ -15,7 +15,7 @@ type VideoSourceType = 'youtube' | 'local-file';
 type EditorKind = 'audio' | 'video';
 
 const BROWSER_SOURCE_MODES: ReadonlyArray<[BrowserSourceMode, string]> = [
-  ['audio', 'Audio (soundboard)'],
+  ['audio', 'Audio clips'],
   ['universal', 'Universal (audio + all videos)'],
   ['landscape', 'Landscape video (legacy)'],
   ['portrait', 'Portrait video (legacy)'],
@@ -43,25 +43,27 @@ function BrowserSourceInstructionsCard({
   return (
     <div className="rounded-md border border-sky-500/40 bg-sky-500/10 p-4">
       <h3 className="text-sm font-medium text-sky-100">
-        OBS Studio / Streamlabs browser source
+        Browser overlay (OBS, Streamlabs, and similar)
       </h3>
       <p className="mt-2 text-sm text-text-muted">
         {editorKind === 'audio' ? (
           <>
-            Audio clips play on a browser source in OBS / Streamlabs when you click them on the
-            dashboard — not through local PC speakers. Add a source with{' '}
-            <span className="font-medium text-text">?mode=audio</span> for the soundboard (or{' '}
-            <span className="font-medium text-text">universal</span> if you use a single overlay
-            for everything).
+            Audio clips play on a browser overlay in your streaming app when you click them on the
+            dashboard. Add a source with{' '}
+            <span className="font-medium text-text">?mode=audio</span> for audio only (or{' '}
+            <span className="font-medium text-text">universal</span> for a single overlay for
+            everything).
           </>
         ) : (
           <>
-            Video clips play on browser sources in OBS / Streamlabs. Use{' '}
-            <span className="font-medium text-text">?mode=landscape</span> or{' '}
-            <span className="font-medium text-text">?mode=portrait</span> matching this clip&apos;s
-            orientation, plus <span className="font-medium text-text">?mode=audio</span> for
-            soundboard audio. Avoid <span className="font-medium text-text">universal</span> if you
-            already use orientation-specific video sources (videos would play twice).
+            Video clips play on browser overlays. Prefer{' '}
+            <span className="font-medium text-text">?mode=stage</span> at canvas resolution (layout
+            areas in the app), or legacy{' '}
+            <span className="font-medium text-text">?mode=landscape</span> /{' '}
+            <span className="font-medium text-text">?mode=portrait</span>. Add{' '}
+            <span className="font-medium text-text">?mode=audio</span> for audio clips. Avoid{' '}
+            <span className="font-medium text-text">universal</span> if you already use
+            orientation-specific video sources (videos would play twice).
           </>
         )}
       </p>
@@ -89,12 +91,14 @@ function BrowserSourceInstructionsCard({
       </ul>
       <ul className="mt-3 list-inside list-disc space-y-1 text-xs text-text-muted">
         <li>
-          <span className="font-medium text-text">OBS Studio:</span> Sources → + → Browser → paste
-          URL → set size (video: canvas; audio: small/hidden source is fine).
+          <span className="font-medium text-text">Any browser source:</span> add a web/browser
+          overlay source, paste the URL, set size (video: canvas; audio: small/hidden is fine).
         </li>
         <li>
-          <span className="font-medium text-text">Streamlabs:</span> Sources → + → Browser Source →
-          paste URL.
+          <span className="font-medium text-text">OBS Studio:</span> Sources → + → Browser.
+        </li>
+        <li>
+          <span className="font-medium text-text">Streamlabs:</span> Sources → + → Browser Source.
         </li>
       </ul>
     </div>

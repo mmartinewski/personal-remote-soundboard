@@ -7,7 +7,7 @@ const {
   openYoutubeLoginWindow,
 } = require('./youtube-auth.cjs');
 
-const APP_NAME = 'Personal Soundboard Player';
+const APP_NAME = 'Stream Media Board';
 const DEFAULT_PORT = 3847;
 const APP_FOLDER_NAME = 'LocalSoundboardServer';
 

@@ -136,7 +136,7 @@ function releaseExists(tag) {
 
 function defaultReleaseNotes(version) {
   return [
-    `## Personal Soundboard Player ${version}`,
+    `## Stream Media Board ${version}`,
     '',
     '- OBS / Streamlabs browser overlay (`/overlay/browser`)',
     '- YouTube video clips with trim and dashboard play to overlay',
@@ -151,7 +151,7 @@ function main() {
 
   const pkg = readPackageJson();
   const version = pkg.version;
-  const productName = pkg.build?.productName ?? 'Personal Soundboard Player';
+  const productName = pkg.build?.productName ?? 'Stream Media Board';
   const tag = `v${version}`;
 
   if (!skipBuild) {

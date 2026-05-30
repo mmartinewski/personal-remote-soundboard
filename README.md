@@ -1,24 +1,27 @@
-# Personal Soundboard Player
+# Stream Media Board
 
-Local soundboard for creating and playing audio clips extracted from YouTube. The server runs on the streaming machine and plays audio through `ffplay`; the web UI can be used on the same PC or from a phone/tablet on the same network.
+LAN clip dashboard and **browser overlay** for live streaming. Trim YouTube (or local) **audio and video** clips, control playback from a phone or second PC on your network, and display them in any streaming app that supports a **browser source** or web overlay — OBS Studio, Streamlabs Desktop, and similar.
+
+Clips play on a transparent overlay in your stream; the dashboard triggers playback over the local network.
 
 ## Main Features
 
-- YouTube audio prefetch with `yt-dlp`.
-- Clip trimming with waveform handles for start/end selection.
-- Automatic audio normalization in previews and saved MP3 files.
-- Per-clip volume with playback boost up to 300%.
-- Suggested YouTube thumbnail with 1:1 crop and zoom.
-- Live-control dashboard: sticky search, large cards, remote play, favorites, edit, and delete.
+- YouTube prefetch with `yt-dlp` (audio and video).
+- Clip trimming with waveform (audio) or timeline (video).
+- **Browser overlay** with multiple modes: audio, stage (layout areas), legacy landscape/portrait.
+- Per-clip volume, favorites, metadata edit, and layout-area defaults for video.
+- Live-control dashboard: search, large cards, remote play, LAN-friendly UI.
 - Local persistence in SQLite (`better-sqlite3`).
+- Windows tray app with one-click **Open in Browser**.
 
 ## Requirements
 
 - Windows.
 - Node.js `>=20` (Node LTS recommended).
 - Local binaries in `bin/`: `ffmpeg.exe`, `ffprobe.exe`, `ffplay.exe`, and `yt-dlp.exe`.
+- A streaming app with a **Browser Source** (or equivalent web overlay).
 
-User data is stored outside the repository in `%APPDATA%/LocalSoundboardServer/`.
+User data is stored outside the repository in `%APPDATA%/LocalSoundboardServer/` (legacy folder name; unchanged for upgrades).
 
 ## Setup
 
@@ -29,25 +32,27 @@ npm run fetch:bin
 
 `npm run fetch:bin` downloads the required executables into `bin/`. They are ignored by Git; see [`bin/README.md`](bin/README.md) for manual installation if the automatic download fails.
 
-## Browser source (OBS Studio / Streamlabs)
+## Browser overlay (OBS, Streamlabs, and similar)
 
-Video and audio clips play on a **transparent browser overlay** in your streaming software—not through local `ffplay`. Add at least one **Browser Source** in OBS or Streamlabs pointing at the overlay URL (see below).
+Video and audio clips play on a **transparent browser overlay** in your streaming software. Add at least one **Browser Source** (or web overlay) pointing at the overlay URL (see below).
 
-Create **video** clips in the editor (YouTube link or a file from your PC). When you click a video clip on the dashboard, it appears in the browser source, plays, and fades out.
+Works with **OBS Studio**, **Streamlabs Desktop**, and any platform that embeds a local web page as a source. This is not an official OBS Project product.
+
+Create clips in the editor (YouTube link or a local file). When you click a clip on the dashboard, it plays on the overlay and fades out when finished.
 
 ### Overlay URLs
 
-Use separate browser sources when you want different on-canvas layouts (e.g. full-width landscape + a portrait column). Add `?mode=` to the path:
+Use separate browser sources when you want different on-canvas layouts. Add `?mode=` to the path:
 
 | Mode | URL suffix | Clips shown |
 | --- | --- | --- |
-| **Audio** | `?mode=audio` | Audio clips only (soundboard) |
+| **Audio** | `?mode=audio` | Audio clips only |
+| **Stage** (recommended) | `?mode=stage` | All video clips; position via **Layout areas** |
 | **Universal** | `?mode=universal` | Audio + all video clips |
-| **Landscape** | `?mode=landscape` | Landscape video only |
-| **Portrait** | `?mode=portrait` | Portrait video only |
-| **Stage** (early) | `?mode=stage` | All video clips on one canvas; position via **Layout areas** in the app |
+| **Landscape** | `?mode=landscape` | Landscape video only *(legacy)* |
+| **Portrait** | `?mode=portrait` | Portrait video only *(legacy)* |
 
-Recommended OBS setup (v0.8+): **`audio`** for the soundboard + **`stage`** for video (one source, configurable regions). Legacy **`landscape`** / **`portrait`** sources still work if you prefer them. Avoid **`universal`** if you already use orientation-specific video sources (otherwise videos play twice).
+**Recommended setup (v0.8+):** **`audio`** for audio clips + **`stage`** for video at canvas resolution (e.g. 1920×1080). Configure areas under **Layout areas** in the app.
 
 | Environment | Example (audio) |
 | --- | --- |
@@ -55,7 +60,7 @@ Recommended OBS setup (v0.8+): **`audio`** for the soundboard + **`stage`** for 
 | Production / installed app | `http://localhost:3847/overlay/browser?mode=audio` |
 | LAN (phone or another PC) | `http://<streaming-PC-IP>:3847/overlay/browser?mode=audio` |
 
-The clip form lists all overlay URLs with **Copy** when **Video clip** is selected. Set **Video orientation** in the editor so video clips route to the right source.
+The clip form lists overlay URLs with **Copy** when editing clips. Set **Video orientation** so clips route correctly in legacy modes.
 
 ### OBS Studio (quick setup)
 
@@ -64,7 +69,7 @@ The clip form lists all overlay URLs with **Copy** when **Video clip** is select
 3. Paste an overlay URL with the desired `?mode=` (see table above).
 4. Set **Width** / **Height** to your canvas (e.g. 1920×1080).
 5. Optional: enable **Refresh browser when scene becomes active**.
-6. Save, then play a video clip from the dashboard to test.
+6. Save, then play a clip from the dashboard to test.
 
 ### Streamlabs Desktop (quick setup)
 
@@ -72,15 +77,15 @@ The clip form lists all overlay URLs with **Copy** when **Video clip** is select
 2. **Sources** → **+** → **Browser Source**.
 3. Paste an overlay URL with the desired `?mode=`.
 4. Match **Width** / **Height** to your output resolution.
-5. Confirm and test with a video clip from the dashboard.
+5. Confirm and test with a clip from the dashboard.
 
 ### More detail
 
 Step-by-step notes, troubleshooting (black background), and audio vs video behavior: **[docs/browser-source-setup.md](docs/browser-source-setup.md)**.
 
-**Layout Stage** (early, v0.8+): single-source layout areas and in-app positioning — **[docs/overlay-layout-stage.md](docs/overlay-layout-stage.md)**. More features will ship in upcoming releases.
+**Layout Stage:** single-source layout areas and in-app positioning — **[docs/overlay-layout-stage.md](docs/overlay-layout-stage.md)**.
 
-Release checklist and API notes: [docs/next-release.md](docs/next-release.md).
+Release checklist: [docs/next-release.md](docs/next-release.md).
 
 ## Development
 
@@ -103,8 +108,6 @@ After the build, Express serves the static frontend from `frontend/dist/`.
 
 ## Windows Installer
 
-To install dependencies, fetch the binaries, and generate a fresh installer in one command:
-
 ```bash
 npm run installer:win
 ```
@@ -120,23 +123,21 @@ npm run dist:win
 The installer is generated under `release/`, for example:
 
 ```text
-release/Personal Soundboard Player Setup 0.1.0.exe
+release/Stream Media Board Setup 0.9.0.exe
 ```
 
-The installed Personal Soundboard Player app runs in the Windows tray and exposes:
+The installed **Stream Media Board** app runs in the Windows tray and exposes:
 
-- `Open in Browser` to open the local web UI.
-- `Exit` to stop playback, shut down the backend, and close the tray app.
+- **Open in Browser** — local web UI (dashboard).
+- **Exit** — stop playback and shut down the backend.
 
-Use `npm run pack:win` to generate an unpacked build for quick smoke tests.
+Use `npm run pack:win` for an unpacked smoke-test build.
 
-`release/` is ignored by Git, so installer artifacts are published via **GitHub Releases**, not committed to the repo.
+`release/` is ignored by Git; installers are published via **GitHub Releases**.
 
 ### Publish installer to GitHub Releases
 
-Requires [GitHub CLI](https://cli.github.com/) (`gh`) logged in (`gh auth login`).
-
-Build the NSIS installer and create/update the release for the current `package.json` version:
+Requires [GitHub CLI](https://cli.github.com/) (`gh auth login`).
 
 ```bash
 npm run publish:win
@@ -148,29 +149,18 @@ Upload only (installer already in `release/`):
 npm run publish:release
 ```
 
-Optional:
-
-- `npm run publish:win -- --draft` — draft release
-- `RELEASE_NOTES_FILE=./notes.md npm run publish:win` — custom release notes
-
-If the tag already exists (e.g. `v0.2.0`), the script uploads the `.exe` again with `--clobber`.
+Optional: `RELEASE_NOTES_FILE=./notes.md npm run publish:win` — custom release notes.
 
 ## Publishing Changes to GitHub
 
-Before committing, run a build:
-
 ```bash
 npm run build
-```
-
-Then commit and push the source changes:
-
-```bash
-git status
 git add -A
 git commit -m "Describe the change"
 git push origin main
 ```
+
+Repository: [github.com/mmartinewski/stream-media-board](https://github.com/mmartinewski/stream-media-board)
 
 ## Configuration
 
@@ -183,40 +173,29 @@ Optionally copy `config/config.example.json` to `config/config.json` to adjust t
 }
 ```
 
-Supported values for `youtube_cookies_from_browser`: `chrome`, `edge`, `firefox`, and other browsers supported by yt-dlp.
-
 ### YouTube sign-in (recommended)
 
-YouTube often blocks anonymous downloads. The desktop app can save a signed-in session for `yt-dlp`:
+1. Right-click the tray icon → **Sign in to YouTube**.
+2. Sign in and click **Save session**.
+3. Retry loading YouTube media in the clip form.
 
-1. Right-click the tray icon.
-2. Click **Sign in to YouTube**.
-3. Sign in with your Google account in the window that opens.
-4. Click **Save session**.
-5. Try loading the YouTube audio again in the clip form.
+Cookies: `%APPDATA%/LocalSoundboardServer/youtube.cookies.txt`
 
-The saved session is stored in `%APPDATA%\\LocalSoundboardServer\\youtube.cookies.txt`.
-
-From the web UI you can also open `soundboard://youtube-login` if the desktop app is running.
-
-### Manual cookie fallback
-
-If needed, copy `config/config.example.json` to `config/config.json` and set `youtube_cookies_from_browser` to a browser where you are signed in to YouTube, or point `youtube_cookies_file` to an exported Netscape cookies file.
-
-`config/config.json` is ignored by Git.
+From the web UI: `soundboard://youtube-login` (desktop app must be running).
 
 ## Structure
 
 ```text
-backend/    API Express, SQLite, FFmpeg/ffplay, yt-dlp
+backend/    API Express, SQLite, FFmpeg, yt-dlp
 frontend/   React + Vite + Tailwind
+desktop/    Electron tray app
 bin/        unversioned local executables
 config/     configuration example
-docs/       technical specification, browser source setup
-scripts/    project utilities
+docs/       setup guides, layout stage spec
+scripts/    build and publish utilities
 ```
 
 ## GitHub Notes
 
-- Do not commit `node_modules/`, `dist/`, `bin/*.exe`, `config/config.json`, or `.env` files.
-- The SQLite database, media, and logs are created in `%APPDATA%/LocalSoundboardServer/`, outside the repository.
+- Do not commit `node_modules/`, `dist/`, `bin/*.exe`, `config/config.json`, or `.env`.
+- Database, media, and logs: `%APPDATA%/LocalSoundboardServer/`.

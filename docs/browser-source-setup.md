@@ -1,12 +1,14 @@
-# Browser source setup (OBS Studio & Streamlabs)
+# Browser source setup (streaming apps)
 
-Video and audio clips from Personal Soundboard Player play on a **transparent web overlay**, not through local `ffplay`. Add one or more **Browser Source** entries in OBS Studio or Streamlabs Desktop, then trigger clips from the dashboard.
+Video and audio clips from **Stream Media Board** play on a **transparent web overlay**. Add one or more **Browser Source** (or web overlay) entries in OBS Studio, Streamlabs Desktop, or any compatible streaming app, then trigger clips from the dashboard.
+
+> **Not affiliated with OBS Project or Streamlabs.** Any software that can load a local URL as a browser/web source should work.
 
 > **Layout Stage (v0.8+):** Use a single **`?mode=stage`** browser source at canvas resolution for all video clips; positions come from **Layout areas** in the app. The multi-source setup below remains supported as **legacy**.
 
 ## Overlay URLs
 
-Append `?mode=` to choose which clips that source receives. Use the same host and port as the soundboard backend.
+Append `?mode=` to choose which clips that source receives. Use the same host and port as the Stream Media Board backend.
 
 | Mode | Query | Receives |
 | --- | --- | --- |
@@ -58,7 +60,7 @@ Each overlay listens for play events over SSE (`/api/browser-source/events?mode=
 
 ### Test
 
-1. Start the soundboard (`npm run dev`, `npm start`, or the installed tray app → **Open in Browser**).
+1. Start Stream Media Board (`npm run dev`, `npm start`, or the installed tray app → **Open in Browser**).
 2. Add browser sources with the correct URLs and modes.
 3. Create a **video** clip, set **Video orientation** if needed, save, and click its card on the dashboard.
 4. The clip should appear on the matching source(s) and fade out near the end.
