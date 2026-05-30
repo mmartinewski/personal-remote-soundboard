@@ -125,6 +125,12 @@ export default function DashboardPage() {
     setToast(null);
   }, []);
 
+  const closeClipCardMenus = useCallback(() => {
+    setOpenMenuKey(null);
+    setPlayAtFlyoutKey(null);
+    setEditFlyoutKey(null);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) {
@@ -531,12 +537,12 @@ export default function DashboardPage() {
   };
 
   const requestDelete = (clip: ClipDto) => {
-    setOpenMenuKey(null);
+    closeClipCardMenus();
     setClipToDelete(clip);
   };
 
   const handleDownload = async (clip: ClipDto) => {
-    setOpenMenuKey(null);
+    closeClipCardMenus();
     setCardErrors((prev) => ({ ...prev, [clip.id]: '' }));
     setDownloadingId(clip.id);
     const isVideo = clip.clip_type === 'video';
@@ -822,18 +828,74 @@ export default function DashboardPage() {
                     >
                       {clip.is_favorite === 1 ? '★' : '☆'}
                     </button>
+                    {clip.clip_type === 'video' && layoutAreas.length > 0 ? (
+                      <>
+                        <button
+                          type="button"
+                          aria-label={`Play ${clip.title} in layout area`}
+                          aria-expanded={
+                            playAtFlyoutKey === menuKey && openMenuKey !== menuKey
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenCategoryMenuKey(null);
+                            setOpenMenuKey(null);
+                            setEditFlyoutKey(null);
+                            setPlayAtFlyoutKey((current) =>
+                              current === menuKey ? null : menuKey,
+                            );
+                          }}
+                          className="absolute right-10 top-2 z-20 rounded-full bg-black/45 p-1.5 text-white shadow backdrop-blur hover:bg-black/60"
+                        >
+                          <PlayInShortcutIcon />
+                        </button>
+                        {playAtFlyoutKey === menuKey && openMenuKey !== menuKey ? (
+                          <>
+                            <button
+                              type="button"
+                              aria-label="Close play in menu"
+                              onClick={closeClipCardMenus}
+                              className="fixed inset-0 z-20 cursor-default bg-transparent"
+                            />
+                            <div className="absolute right-10 top-11 z-30 min-w-44 overflow-hidden rounded-md border border-surface bg-bg shadow-xl">
+                              <p className="border-b border-surface px-3 py-2 text-xs font-medium text-text-muted">
+                                Play in…
+                              </p>
+                              <div
+                                className="max-h-48 overflow-y-auto py-1"
+                                role="menu"
+                                aria-label="Layout areas"
+                              >
+                                <PlayInAreaList
+                                  clip={clip}
+                                  areas={layoutAreas}
+                                  settings={layoutSettings}
+                                  playingId={playingId}
+                                  itemClassName="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-soft disabled:cursor-not-allowed disabled:opacity-50"
+                                  onSelect={(areaId) => {
+                                    closeClipCardMenus();
+                                    void handlePlay(clip, areaId);
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </>
+                        ) : null}
+                      </>
+                    ) : null}
                     <button
                       type="button"
                       aria-label="Open clip menu"
                       onClick={() => {
                         setOpenCategoryMenuKey(null);
                         setOpenMenuKey((current) => {
-                          const next = current === menuKey ? null : menuKey;
-                          if (next !== menuKey) {
-                            setPlayAtFlyoutKey(null);
-                            setEditFlyoutKey(null);
+                          if (current === menuKey) {
+                            closeClipCardMenus();
+                            return null;
                           }
-                          return next;
+                          setPlayAtFlyoutKey(null);
+                          setEditFlyoutKey(null);
+                          return menuKey;
                         });
                       }}
                       className="absolute right-2 top-2 z-20 rounded-full bg-black/45 px-2 py-1 text-xl leading-none text-white shadow backdrop-blur"
@@ -845,11 +907,7 @@ export default function DashboardPage() {
                         <button
                           type="button"
                           aria-label="Close menu"
-                          onClick={() => {
-                            setOpenMenuKey(null);
-                            setPlayAtFlyoutKey(null);
-                            setEditFlyoutKey(null);
-                          }}
+                          onClick={closeClipCardMenus}
                           className="fixed inset-0 z-20 cursor-default bg-transparent"
                         />
                         <div className="absolute right-2 top-11 z-30 min-w-44 rounded-md border border-surface bg-bg shadow-xl">
@@ -879,34 +937,16 @@ export default function DashboardPage() {
                                 role="menu"
                                 aria-label="Layout areas"
                               >
-                                {layoutAreas.map((area) => {
-                                  const defaultAreaId = resolvePlayLayoutAreaId(
-                                    clip,
-                                    layoutSettings,
-                                    layoutAreas,
-                                  );
-                                  const isDefault = defaultAreaId === area.id;
-                                  return (
-                                    <button
-                                      key={area.id}
-                                      type="button"
-                                      role="menuitem"
-                                      disabled={playingId === clip.id}
-                                      onClick={() => {
-                                        setOpenMenuKey(null);
-                                        setPlayAtFlyoutKey(null);
-                                        setEditFlyoutKey(null);
-                                        void handlePlay(clip, area.id);
-                                      }}
-                                      className={
-                                        'flex w-full items-center gap-2 py-2 pl-8 pr-3 text-left text-sm hover:bg-surface-soft disabled:cursor-not-allowed disabled:opacity-50 ' +
-                                        (isDefault ? 'bg-accent/10 text-accent' : '')
-                                      }
-                                    >
-                                      <span className="truncate">{area.name}</span>
-                                    </button>
-                                  );
-                                })}
+                                <PlayInAreaList
+                                  clip={clip}
+                                  areas={layoutAreas}
+                                  settings={layoutSettings}
+                                  playingId={playingId}
+                                  onSelect={(areaId) => {
+                                    closeClipCardMenus();
+                                    void handlePlay(clip, areaId);
+                                  }}
+                                />
                               </div>
                             ) : null}
                           </div>
@@ -949,10 +989,7 @@ export default function DashboardPage() {
                                 to={`/clips/${clip.id}/edit`}
                                 role="menuitem"
                                 className="flex items-center gap-2 py-2 pl-8 pr-3 text-sm hover:bg-surface-soft"
-                                onClick={() => {
-                                  setOpenMenuKey(null);
-                                  setEditFlyoutKey(null);
-                                }}
+                                onClick={closeClipCardMenus}
                               >
                                 <span aria-hidden="true">🎬</span>
                                 Full editor
@@ -995,28 +1032,29 @@ export default function DashboardPage() {
                     >
                       <span
                         className={
-                          'relative flex h-16 w-16 items-center justify-center rounded-full text-3xl shadow-lg backdrop-blur transition-all duration-300 ' +
+                          'relative flex h-16 w-16 items-center justify-center rounded-full shadow-lg backdrop-blur transition-all duration-300 ' +
                           (playPulse?.id === clip.id
                             ? 'scale-125 bg-white/90 text-bg ring-4 ring-white/60'
                             : 'scale-100 bg-black/45 text-white')
                         }
                       >
-                        <span className="relative translate-x-0.5">▶</span>
+                        {clip.clip_type === 'video' ? (
+                          <VideoClipIcon />
+                        ) : (
+                          <AudioClipIcon />
+                        )}
                       </span>
                     </button>
                   </div>
                   <div className="p-3">
-                    <p className="truncate font-medium">
+                    <p
+                      className="truncate font-medium"
+                      title={clip.clip_type === 'video' ? clip.title : undefined}
+                    >
                       {clip.title}
-                      {clip.clip_type === 'video' ? (
-                        <span className="ml-2 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-200">
-                          Video
-                        </span>
-                      ) : null}
                     </p>
                     <p className="truncate text-xs text-text-muted">
                       {clip.category.name ?? '(uncategorized)'}
-                      {' · Browser overlay'}
                     </p>
                     {clip.clip_type === 'video' && layoutAreas.length > 0 ? (
                       <p className="mt-1 truncate text-[10px] text-text-muted">
@@ -1025,6 +1063,10 @@ export default function DashboardPage() {
                           resolvePlayLayoutAreaId(clip, layoutSettings, layoutAreas),
                           layoutAreas,
                         ) ?? 'default area'}
+                      </p>
+                    ) : clip.clip_type === 'audio' ? (
+                      <p className="mt-1 truncate text-[10px] text-text-muted">
+                        Play → Audio clip
                       </p>
                     ) : null}
                     <div className="mt-2">
@@ -1367,6 +1409,99 @@ function toDownloadFilename(title: string): string {
     .replace(/\s+/g, ' ')
     .slice(0, 80);
   return safe || 'clip';
+}
+
+function PlayInAreaList({
+  clip,
+  areas,
+  settings,
+  playingId,
+  onSelect,
+  itemClassName = 'flex w-full items-center gap-2 py-2 pl-8 pr-3 text-left text-sm hover:bg-surface-soft disabled:cursor-not-allowed disabled:opacity-50',
+}: {
+  clip: ClipDto;
+  areas: LayoutAreaDto[];
+  settings: LayoutSettingsResponse | null;
+  playingId: number | null;
+  onSelect: (areaId: number) => void;
+  itemClassName?: string;
+}) {
+  const defaultAreaId = resolvePlayLayoutAreaId(clip, settings, areas);
+  return (
+    <>
+      {areas.map((area) => {
+        const isDefault = defaultAreaId === area.id;
+        return (
+          <button
+            key={area.id}
+            type="button"
+            role="menuitem"
+            disabled={playingId === clip.id}
+            onClick={() => onSelect(area.id)}
+            className={itemClassName + (isDefault ? ' bg-accent/10 text-accent' : '')}
+          >
+            <span className="truncate">{area.name}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+function VideoClipIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-8 w-8"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+    >
+      <rect x="3" y="7" width="12" height="10" rx="1.5" />
+      <path d="M15 10.5 21 7v10l-6-3.5" />
+    </svg>
+  );
+}
+
+/** Speaker icon paths from Wikimedia Commons (Speaker_Icon.svg). */
+function AudioClipIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 75 75"
+      className="h-8 w-8"
+      fill="currentColor"
+      stroke="currentColor"
+    >
+      <path
+        d="M39.389,13.769 L22.235,28.606 L6,28.606 L6,47.699 L21.989,47.699 L39.389,62.75 L39.389,13.769z"
+        strokeWidth={5}
+        strokeLinejoin="round"
+      />
+      <path
+        d="M48,27.6a19.5,19.5 0 0 1 0,21.4M55.1,20.5a30,30 0 0 1 0,35.6M61.6,14a38.8,38.8 0 0 1 0,48.6"
+        fill="none"
+        strokeWidth={5}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function PlayInShortcutIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="currentColor"
+    >
+      <path d="M7.5 5.5v9l7-4.5-7-4.5Z" />
+    </svg>
+  );
 }
 
 function DownloadIcon() {
